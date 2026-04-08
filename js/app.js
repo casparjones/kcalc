@@ -184,14 +184,22 @@ document.addEventListener('alpine:init', function () {
             addWeightEntry: function () {
                 if (!this.newDate) { this.toast('Bitte Datum eingeben', 'warn'); return; }
                 if (!this.canAddWeight) { this.toast('Bitte gültiges Gewicht eingeben', 'warn'); return; }
-                var existing = this.weightHistory.find(function (e) { return e.date === this.newDate; }.bind(this));
+                var self = this;
+                var existing = this.weightHistory.find(function (e) { return e.date === self.newDate; });
                 if (existing) {
-                    existing.weight = parseFloat(this.newWeight);
-                    this.toast('Gewicht aktualisiert', 'info');
-                } else {
-                    this.weightHistory.push({ date: this.newDate, weight: parseFloat(this.newWeight), id: Date.now() });
-                    this.toast('Gewicht hinzugefügt', 'success');
+                    var parts = existing.date.split('-');
+                    this.confirmToast(parts[2] + '.' + parts[1] + '.' + parts[0] + ': ' + existing.weight.toFixed(1) + ' kg überschreiben mit ' + parseFloat(this.newWeight).toFixed(1) + ' kg?', function () {
+                        existing.weight = parseFloat(self.newWeight);
+                        self.toast('Gewicht aktualisiert', 'info');
+                        self.newWeight = '';
+                        self.newDate = self.todayStr();
+                        self.persistWeightHistory();
+                        self.drawChart();
+                    });
+                    return;
                 }
+                this.weightHistory.push({ date: this.newDate, weight: parseFloat(this.newWeight), id: Date.now() });
+                this.toast('Gewicht hinzugefügt', 'success');
                 this.newWeight = '';
                 this.newDate = this.todayStr();
                 this.persistWeightHistory();
