@@ -438,15 +438,20 @@
                 tempData = shared;
                 setActive(shared.name || 'Geteilt');
                 toast('Geteilter Verlauf von "' + (shared.name || 'Unbekannt') + '"', 'info');
-                document.dispatchEvent(new CustomEvent('dataSaved', { detail: shared }));
                 if (shared.profile) {
                     showSummary(shared.profile, shared.name);
-                    var ge = parseFloat(shared.profile.gesamtumsatz);
-                    if (ge > 0 && window.Calculator && window.Calculator.displayDietGoals) {
-                        window.Calculator.displayDietGoals(ge);
-                    }
                 }
                 updateDropdown();
+                // Verzögert feuern damit weight-tracker.js seinen Listener registriert hat
+                setTimeout(function () {
+                    document.dispatchEvent(new CustomEvent('dataSaved', { detail: shared }));
+                    if (shared.profile) {
+                        var ge = parseFloat(shared.profile.gesamtumsatz);
+                        if (ge > 0 && window.Calculator && window.Calculator.displayDietGoals) {
+                            window.Calculator.displayDietGoals(ge);
+                        }
+                    }
+                }, 100);
             }
         } else if (activeName && names.indexOf(activeName) >= 0) {
             activateProfile(activeName);
