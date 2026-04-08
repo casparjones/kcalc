@@ -1657,22 +1657,12 @@ h3 { font-size: var(--font-size-xl); }
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* Sections starten unsichtbar, faden beim Scrollen ein */
+/* Alpine cloak */
+[x-cloak] { display: none !important; }
+
+/* Sections fade in */
 .section {
-    opacity: 0;
-    transform: translateY(20px);
-    transition: opacity 0.5s ease-out, transform 0.5s ease-out;
-}
-
-.section.visible {
-    opacity: 1;
-    transform: translateY(0);
-}
-
-/* Hidden sections bleiben unsichtbar bis sie gezeigt werden */
-.section.hidden {
-    opacity: 0 !important;
-    transform: none !important;
+    animation: fadeIn 0.5s ease-out;
 }
 
 /* --------------------------------------------------------------------------

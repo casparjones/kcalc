@@ -5,44 +5,38 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="format-detection" content="telephone=no">
-    <title>Diäthelfer - Kalorienbedarf Rechner | Grund- und Gesamtumsatz berechnen</title>
+    <title>kcalc - Kalorienbedarf Rechner | Grund- und Gesamtumsatz berechnen</title>
 
     <!-- SEO Meta Tags -->
     <meta name="description" content="Online-Rechner um den eigenen Energiebedarf eines Tages zu berechnen. Grundumsatz nach Harris-Benedict und Mifflin-St.Jeor, Leistungsumsatz und Gesamtumsatz mit PAL-Faktoren.">
     <meta name="keywords" content="Leistungsumsatz, Arbeitsumsatz, Gesamtumsatz, Grundumsatz, PAL, kcal, Diät, Rechner, Kalorienbedarf">
-    <meta name="author" content="Diäthelfer">
+    <meta name="author" content="kcalc">
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="https://kcalc.de/">
 
-    <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://kcalc.de/">
-    <meta property="og:title" content="Diäthelfer - Kalorienbedarf Rechner">
-    <meta property="og:description" content="Online-Rechner um den eigenen Energiebedarf eines Tages zu berechnen. Grundumsatz, Leistungsumsatz und Gesamtumsatz.">
+    <meta property="og:title" content="kcalc - Kalorienbedarf Rechner">
+    <meta property="og:description" content="Online-Rechner um den eigenen Energiebedarf eines Tages zu berechnen.">
     <meta property="og:image" content="https://kcalc.de/img/og-image.png">
     <meta property="og:locale" content="de_DE">
-    <meta property="og:site_name" content="Diäthelfer">
+    <meta property="og:site_name" content="kcalc">
 
-    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Diäthelfer - Kalorienbedarf Rechner">
+    <meta name="twitter:title" content="kcalc - Kalorienbedarf Rechner">
     <meta name="twitter:description" content="Online-Rechner um den eigenen Energiebedarf eines Tages zu berechnen.">
     <meta name="twitter:image" content="https://kcalc.de/img/og-image.png">
 
-    <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
     <link rel="apple-touch-icon" sizes="180x180" href="img/apple-touch-icon.png">
-
-    <!-- Theme Color -->
     <meta name="theme-color" content="#27ae60">
 
-    <!-- Schema.org Structured Data -->
     <script type="application/ld+json">
     {
         "@context": "https://schema.org",
         "@type": "WebApplication",
-        "name": "Diäthelfer - Kalorienbedarf Rechner",
-        "description": "Kostenloser Online-Rechner zur Berechnung des täglichen Kalorienbedarfs mit Harris-Benedict und Mifflin-St.Jeor Formeln.",
+        "name": "kcalc - Kalorienbedarf Rechner",
+        "description": "Kostenloser Online-Rechner zur Berechnung des täglichen Kalorienbedarfs.",
         "url": "https://kcalc.de/",
         "applicationCategory": "HealthApplication",
         "operatingSystem": "Web Browser",
@@ -53,16 +47,15 @@
 
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/print.css" media="print">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
 </head>
-<body>
+<body x-data="app()" x-init="init()" @click.away="dropdownOpen = false">
+
     <!-- Header -->
     <header class="site-header" id="siteHeader">
         <div class="container header-bar">
-            <!-- Burger Button (mobile, links) -->
-            <button class="burger-btn" id="burgerBtn" aria-label="Menü öffnen">
-                <span class="burger-line"></span>
-                <span class="burger-line"></span>
-                <span class="burger-line"></span>
+            <button class="burger-btn" @click="burgerOpen = true" aria-label="Menü">
+                <span class="burger-line"></span><span class="burger-line"></span><span class="burger-line"></span>
             </button>
 
             <div class="header-brand">
@@ -74,357 +67,347 @@
             </div>
 
             <div class="header-right">
-                <!-- Desktop Nav -->
-                <nav class="header-nav-desktop" id="headerNavDesktop" aria-label="Hauptnavigation">
-                    <ul id="navLinksDesktop"></ul>
+                <nav class="header-nav-desktop">
+                    <ul>
+                        <template x-for="link in navLinks" :key="link.href">
+                            <li><a :href="link.href" x-text="link.label"></a></li>
+                        </template>
+                    </ul>
                 </nav>
-                <!-- Profil-Dropdown -->
-                <div class="profile-dropdown hidden" id="profileDropdown">
-                    <button class="profile-dropdown-toggle" id="profileToggle">
-                        <span class="profile-avatar" id="profileAvatar">F</span>
-                        <span class="profile-name-display" id="profileNameDisplay">Frank</span>
-                        <span class="profile-arrow">&#9662;</span>
+
+                <!-- Profil Dropdown -->
+                <div class="profile-dropdown" x-show="hasProfiles" x-cloak>
+                    <button class="profile-dropdown-toggle" @click.stop="dropdownOpen = !dropdownOpen">
+                        <span class="profile-avatar" x-text="(activeProfile || 'G').charAt(0).toUpperCase()"></span>
+                        <span class="profile-name-display" x-text="activeProfile || 'Geteilt'"></span>
+                        <span class="profile-arrow" :class="{ 'rotated': dropdownOpen }">&#9662;</span>
                     </button>
-                    <div class="profile-dropdown-menu" id="profileMenu">
-                        <div class="profile-dropdown-section" id="profileSwitchList"></div>
+                    <div class="profile-dropdown-menu" x-show="dropdownOpen" x-transition @click.stop>
+                        <!-- Temp save banner -->
+                        <button class="profile-save-banner" x-show="isTemporary" @click="saveTemporary()">&#128190; Lokal speichern</button>
+                        <!-- Profile switch -->
+                        <template x-for="name in profileNames" :key="name">
+                            <button class="profile-dropdown-item" :class="{ 'profile-dropdown-item--active': name === activeProfile && !isTemporary }" x-show="name !== activeProfile || isTemporary" x-text="name" @click="activateProfile(name)"></button>
+                        </template>
                         <div class="profile-dropdown-divider"></div>
-                        <button class="profile-dropdown-item" id="newProfileBtn">&#10133; Neues Profil</button>
-                        <button class="profile-dropdown-item profile-dropdown-item--danger" id="deleteProfileBtn">Profil löschen</button>
+                        <button class="profile-dropdown-item" @click="newProfile()">&#10133; Neues Profil</button>
+                        <button class="profile-dropdown-item profile-dropdown-item--danger" @click="deleteProfile()">Profil löschen</button>
                         <div class="profile-dropdown-divider"></div>
-                        <button class="profile-dropdown-item" id="shareProfileBtn">&#128279; Verlauf teilen</button>
+                        <button class="profile-dropdown-item" @click="openShare()">&#128279; Verlauf teilen</button>
                     </div>
                 </div>
+
+                <button class="burger-btn" @click="burgerOpen = true" aria-label="Menü" style="display:none">
+                </button>
             </div>
         </div>
     </header>
 
-    <!-- Mobile Nav Drawer -->
-    <nav class="mobile-nav" id="mobileNav" aria-label="Mobile Navigation">
-        <div class="mobile-nav-backdrop" id="mobileNavBackdrop"></div>
-        <div class="mobile-nav-drawer">
+    <!-- Mobile Nav -->
+    <nav class="mobile-nav" :class="{ open: burgerOpen }" x-show="burgerOpen" x-transition.opacity>
+        <div class="mobile-nav-backdrop" @click="burgerOpen = false"></div>
+        <div class="mobile-nav-drawer" x-transition.origin.left>
             <div class="mobile-nav-header">
                 <span>Navigation</span>
-                <button class="mobile-nav-close" id="mobileNavClose">&times;</button>
+                <button class="mobile-nav-close" @click="burgerOpen = false">&times;</button>
             </div>
-            <ul id="mobileNavLinks">
-                <!-- Dynamisch befüllt -->
+            <ul>
+                <template x-for="link in navLinks" :key="link.href">
+                    <li><a :href="link.href" x-text="link.label" @click="burgerOpen = false"></a></li>
+                </template>
             </ul>
         </div>
     </nav>
 
-    <!-- Main Content -->
+    <!-- Main -->
     <main class="site-main">
         <div class="container">
 
-            <!-- ============================================================
-                 Gespeicherte Zusammenfassung (nach Speichern sichtbar, ganz oben)
-                 ============================================================ -->
-            <section id="saved-summary" class="section hidden">
+            <!-- ==================== SAVED SUMMARY ==================== -->
+            <section id="saved-summary" class="section visible" x-show="view === 'saved'" x-cloak>
                 <div class="summary-card">
                     <div class="summary-header">
-                        <h2 class="section-title" id="summaryTitle">Deine gespeicherten Daten</h2>
+                        <h2 class="section-title" x-text="activeProfile || 'Deine Daten'"></h2>
                         <div class="summary-actions">
-                            <button type="button" class="summary-icon-btn" id="editDataBtn" title="Bearbeiten">&#9998;</button>
-                            <button type="button" class="summary-icon-btn" id="resaveBtn" title="Speichern">&#128190;</button>
-                            <button type="button" class="summary-icon-btn" id="printBtn" title="Drucken" onclick="window.print()">&#128424;</button>
+                            <button class="summary-icon-btn" @click="editProfile()" title="Bearbeiten">&#9998;</button>
+                            <button class="summary-icon-btn" @click="resave()" title="Speichern">&#128190;</button>
+                            <button class="summary-icon-btn" @click="window.print()" title="Drucken">&#128424;</button>
                         </div>
                     </div>
-                    <div class="summary-grid-compact" id="summaryContent"></div>
+                    <div class="summary-grid-compact">
+                        <div class="summary-item"><span class="summary-label">Gewicht</span><span class="summary-val" x-text="form.gewicht + ' kg'"></span></div>
+                        <div class="summary-item"><span class="summary-label">Größe</span><span class="summary-val" x-text="form.groesse + ' cm'"></span></div>
+                        <div class="summary-item"><span class="summary-label">Alter</span><span class="summary-val" x-text="form.alter + ' J.'"></span></div>
+                        <div class="summary-item"><span class="summary-label">Geschlecht</span><span class="summary-val" x-text="form.geschlecht === 'm' ? 'M' : 'W'"></span></div>
+                        <div class="summary-item"><span class="summary-label">Formel</span><span class="summary-val" x-text="formelText()"></span></div>
+                        <div class="summary-item"><span class="summary-label">Broca</span><span class="summary-val" x-text="form.anpassung === 'j' ? 'Ja' : 'Nein'"></span></div>
+                        <div class="summary-item"><span class="summary-label">PAL</span><span class="summary-val" x-text="palValue || '-'"></span></div>
+                        <div class="summary-item"><span class="summary-label">Erstellt</span><span class="summary-val" x-text="fmtDate(form.savedAt)"></span></div>
+                        <div class="summary-item" :class="bmiInfo.cls"><span class="summary-label">BMI</span><span class="summary-val" x-html="bmiInfo.text + ' ' + (bmiInfo.icon ? '<span class=\'' + bmiInfo.cls + '\'>' + bmiInfo.icon + '</span>' : '')"></span></div>
+                        <div class="summary-item summary-item--highlight"><span class="summary-label">Grundumsatz</span><span class="summary-val" x-text="(grundumsatz || '-') + ' kcal'"></span></div>
+                        <div class="summary-item summary-item--highlight"><span class="summary-label">Leistungsumsatz</span><span class="summary-val" x-text="(leistungsumsatz || '-') + ' kcal'"></span></div>
+                        <div class="summary-item summary-item--highlight"><span class="summary-label">Gesamtumsatz</span><span class="summary-val" x-text="(gesamtumsatz || '-') + ' kcal'"></span></div>
+                    </div>
                 </div>
             </section>
 
-            <!-- ============================================================
-                 Gewichtsverlauf (direkt nach Deine Daten)
-                 ============================================================ -->
-            <section id="weight-tracker" class="section hidden">
+            <!-- ==================== WEIGHT TRACKER ==================== -->
+            <section id="weight-tracker" class="section visible" x-show="view === 'saved' && weightHistory.length > 0" x-cloak>
                 <h2 class="section-title">Gewichtsverlauf</h2>
-
-                <!-- Diagramm -->
                 <div class="weight-chart-container">
                     <canvas id="weightChart" width="800" height="300"></canvas>
                 </div>
-
-                <!-- Gewichtsliste (CRUD) mit Eingabezeile als erste Reihe -->
                 <div class="weight-list-container">
                     <table class="data-table weight-table">
-                        <thead>
-                            <tr>
-                                <th>Datum</th>
-                                <th>kg</th>
-                                <th>Dif.</th>
-                                <th></th>
+                        <thead><tr><th>Datum</th><th>kg</th><th>Dif.</th><th></th></tr></thead>
+                        <tbody>
+                            <!-- Add row -->
+                            <tr class="weight-row weight-row--add">
+                                <td><input type="date" class="inline-input" x-model="newDate"></td>
+                                <td><input type="number" class="inline-input" x-model="newWeight" min="1" max="400" step="0.1" placeholder="kg"></td>
+                                <td colspan="2"><button class="btn-add-new" :disabled="!canAddWeight" @click="addWeightEntry()">+ Neu</button></td>
                             </tr>
-                        </thead>
-                        <tbody id="weightListBody"></tbody>
+                            <!-- Data rows (descending) -->
+                            <template x-for="entry in sortedWeightDesc" :key="entry.id">
+                                <tr class="weight-row" :class="{ 'weight-row--editing': editingId === entry.id }">
+                                    <template x-if="editingId === entry.id">
+                                        <td colspan="4">
+                                            <div style="display:flex;align-items:center;gap:6px;">
+                                                <input type="date" class="inline-input" x-model="entry.date" style="flex:1;min-width:0;">
+                                                <input type="number" class="inline-input" x-model.number="entry.weight" step="0.1" min="1" max="400" style="flex:1;min-width:0;">
+                                                <div class="edit-actions-cell">
+                                                    <button class="btn-icon" @click="deleteEntry(entry)" title="Löschen">&#128465;</button>
+                                                    <button class="btn-icon" @click="cancelEdit()" title="Abbrechen">&#10007;</button>
+                                                    <button class="btn-icon btn-save-edit" @click="saveEdit(entry)" title="Speichern">&#10003;</button>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </template>
+                                    <template x-if="editingId !== entry.id">
+                                        <td x-text="fmtWeightDate(entry.date)"></td>
+                                    </template>
+                                    <template x-if="editingId !== entry.id">
+                                        <td class="weight-clickable" @click="startEdit(entry.id)"><strong x-text="entry.weight.toFixed(1)"></strong></td>
+                                    </template>
+                                    <template x-if="editingId !== entry.id">
+                                        <td :class="weightDiffClass(entry)" x-text="isStartEntry(entry) ? 'Start' : weightDiff(entry)"></td>
+                                    </template>
+                                    <template x-if="editingId !== entry.id">
+                                        <td></td>
+                                    </template>
+                                </tr>
+                            </template>
+                        </tbody>
                     </table>
                 </div>
             </section>
 
-            <!-- ============================================================
-                 Berechnung des Grundumsatzes
-                 ============================================================ -->
-            <section id="grundumsatz-section" class="section hidden">
+            <!-- ==================== GRUNDUMSATZ FORM ==================== -->
+            <section id="grundumsatz-section" class="section visible" x-show="view === 'form'" x-cloak>
                 <h2 class="section-title">Berechnung des Grundumsatzes</h2>
-                <p class="section-description">
-                    Mit Hilfe dieses Rechners kann der Gesamtumsatz berechnet werden.<br>
-                    Die Berechnungsgrundlagen sind bei <a href="https://de.wikipedia.org/wiki/Grundumsatz" target="_blank" rel="noopener">Wikipedia (Grundumsatz)</a> zu finden.
-                </p>
+                <p class="section-description">Die Berechnungsgrundlagen sind bei <a href="https://de.wikipedia.org/wiki/Grundumsatz" target="_blank" rel="noopener">Wikipedia (Grundumsatz)</a> zu finden.</p>
 
-                <div class="calc-form" id="grundumsatzForm">
-                    <table class="data-table" id="eingaben">
-                        <thead>
-                            <tr>
-                                <th>Angaben</th>
-                                <th>Wert</th>
-                                <th></th>
-                                <th>Info</th>
-                            </tr>
-                        </thead>
+                <div class="calc-form">
+                    <table class="data-table">
+                        <thead><tr><th>Angaben</th><th>Wert</th><th></th><th>Info</th></tr></thead>
                         <tbody>
                             <tr>
-                                <td><label for="saveName">Name</label></td>
-                                <td><input type="text" id="saveName" name="saveName" placeholder="z.B. Frank" maxlength="40"></td>
+                                <td><label>Name</label></td>
+                                <td><input type="text" x-model="form.name" placeholder="z.B. Frank" maxlength="40"></td>
                                 <td></td>
                                 <td class="info-cell">Unter diesem Namen werden deine Daten lokal gespeichert.</td>
                             </tr>
-                        </tbody>
-                    </table>
-                    <table class="data-table" id="eingabenCalc">
-                        <thead>
                             <tr>
-                                <th>Angaben</th>
-                                <th>Wert</th>
-                                <th></th>
-                                <th>Info</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td><label for="gewicht">Gewicht</label></td>
-                                <td><input type="number" id="gewicht" name="gewicht" min="1" max="400" step="0.1" placeholder="z.B. 75"></td>
-                                <td>kg</td>
-                                <td></td>
+                                <td><label>Gewicht</label></td>
+                                <td><input type="number" x-model="form.gewicht" @input="recalculate()" min="1" max="400" step="0.1" placeholder="z.B. 75"></td>
+                                <td>kg</td><td></td>
                             </tr>
                             <tr>
-                                <td><label for="groesse">Größe</label></td>
-                                <td><input type="number" id="groesse" name="groesse" min="50" max="250" placeholder="z.B. 175"></td>
-                                <td>cm</td>
-                                <td></td>
+                                <td><label>Größe</label></td>
+                                <td><input type="number" x-model="form.groesse" @input="recalculate()" min="50" max="250" placeholder="z.B. 175"></td>
+                                <td>cm</td><td></td>
                             </tr>
                             <tr>
-                                <td><label for="alter">Alter</label></td>
-                                <td><input type="number" id="alter" name="alter" min="1" max="120" placeholder="z.B. 30"></td>
-                                <td>Jahre</td>
-                                <td></td>
+                                <td><label>Alter</label></td>
+                                <td><input type="number" x-model="form.alter" @input="recalculate()" min="1" max="120" placeholder="z.B. 30"></td>
+                                <td>Jahre</td><td></td>
                             </tr>
                             <tr>
-                                <td><label for="geschlecht">Geschlecht</label></td>
-                                <td>
-                                    <select id="geschlecht" name="geschlecht">
-                                        <option value="m">männlich</option>
-                                        <option value="w">weiblich</option>
-                                    </select>
-                                </td>
-                                <td></td>
-                                <td></td>
+                                <td><label>Geschlecht</label></td>
+                                <td><select x-model="form.geschlecht" @change="recalculate()"><option value="m">männlich</option><option value="w">weiblich</option></select></td>
+                                <td></td><td></td>
                             </tr>
                             <tr>
-                                <td><label for="formel">Formel</label></td>
-                                <td>
-                                    <select id="formel" name="formel">
-                                        <option value="harris" selected>Harris-Benedict</option>
-                                        <option value="mifflin">Mifflin-St.Jeor</option>
-                                        <option value="mittelwert">Mittelwert</option>
-                                    </select>
-                                </td>
-                                <td></td>
-                                <td></td>
+                                <td><label>Formel</label></td>
+                                <td><select x-model="form.formel" @change="recalculate()"><option value="harris">Harris-Benedict</option><option value="mifflin">Mifflin-St.Jeor</option><option value="mittelwert">Mittelwert</option></select></td>
+                                <td></td><td></td>
                             </tr>
                             <tr>
-                                <td><label for="anpassung">Broca-Index-Anpassung</label></td>
-                                <td>
-                                    <select id="anpassung" name="anpassung">
-                                        <option value="j">Ja</option>
-                                        <option value="n" selected>Nein</option>
-                                    </select>
-                                </td>
-                                <td></td>
-                                <td class="info-cell">Ab einem BMI von 30 wird die Berechnung angepasst.</td>
+                                <td><label>Broca-Index-Anpassung</label></td>
+                                <td><select x-model="form.anpassung" @change="recalculate()"><option value="j">Ja</option><option value="n">Nein</option></select></td>
+                                <td></td><td class="info-cell">Ab einem BMI von 30 wird die Berechnung angepasst.</td>
                             </tr>
                             <tr class="result-row">
                                 <td><strong>Grundumsatz</strong></td>
-                                <td><input type="text" id="grundumsatz" name="grundumsatz" readonly></td>
+                                <td><input type="text" :value="grundumsatz || '-'" readonly></td>
                                 <td>kcal/24h</td>
-                                <td class="info-cell">Ist diejenige Energiemenge, die der Körper pro Tag bei völliger Ruhe, bei Indifferenztemperatur (28 °C) und nüchtern zur Aufrechterhaltung seiner Funktionen benötigt.</td>
+                                <td class="info-cell">Energiemenge bei völliger Ruhe zur Aufrechterhaltung der Körperfunktionen.</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
             </section>
 
-            <!-- ============================================================
-                 Berechnung des Leistungs- und Gesamtumsatzes
-                 ============================================================ -->
-            <section id="leistungsumsatz-section" class="section hidden">
+            <!-- ==================== LEISTUNGSUMSATZ FORM ==================== -->
+            <section id="leistungsumsatz-section" class="section visible" x-show="view === 'form'" x-cloak>
                 <h2 class="section-title">Berechnung des Leistungs- und Gesamtumsatzes</h2>
-                <p class="section-description">
-                    Mit Hilfe dieses Rechners kann der Leistungs- und Gesamtumsatz berechnet werden.<br>
-                    Die Berechnungsgrundlagen sind bei <a href="https://de.wikipedia.org/wiki/Leistungsumsatz" target="_blank" rel="noopener">Wikipedia (Leistungsumsatz)</a> zu finden.
-                </p>
+                <p class="section-description">Die Berechnungsgrundlagen sind bei <a href="https://de.wikipedia.org/wiki/Leistungsumsatz" target="_blank" rel="noopener">Wikipedia (Leistungsumsatz)</a> zu finden.</p>
 
                 <div class="calc-form">
-                    <table class="data-table" id="eingaben_pal">
-                        <thead>
-                            <tr>
-                                <th>Tätigkeit</th>
-                                <th>Dauer hh:mm</th>
-                                <th>Faktor</th>
-                                <th>Summe</th>
-                            </tr>
-                        </thead>
-                        <tbody id="pal-body">
-                            <tr class="pal-row">
-                                <td>
-                                    <select class="pal-tat" name="tat">
-                                        <option value="0.95" selected>schlafen</option>
-                                        <option value="1.20">nur sitzend oder liegend</option>
-                                        <option value="1.45">fast ausschließlich sitzend, wenig Freizeitaktivitäten (Schreibtischtätigkeit)</option>
-                                        <option value="1.65">überwiegend sitzend, mit zusätzlichen stehenden/gehenden Tätigkeiten (Kraftfahrer, Studenten, Laboranten)</option>
-                                        <option value="1.85">überwiegend stehende/gehende Tätigkeit (Verkäufer/innen, Kellner, Handwerker, Hausfrauen)</option>
-                                        <option value="2.00">körperlich anstrengende berufliche Tätigkeit (Bergleute, Landwirte, Waldarbeiter, Hochleistungssportler)</option>
-                                        <option value="0">Eingabe 1.2 - 3.00</option>
-                                    </select>
-                                </td>
-                                <td><input type="text" class="pal-zeit" name="zeit" value="8:00" size="5"></td>
-                                <td><input type="text" class="pal-faktor" name="faktor" value="0.95" readonly size="5"></td>
-                                <td><input type="text" class="pal-sum" name="sum" value="0" readonly size="5"></td>
-                            </tr>
+                    <table class="data-table">
+                        <thead><tr><th>Tätigkeit</th><th>Dauer hh:mm</th><th>Faktor</th><th>Summe</th></tr></thead>
+                        <tbody>
+                            <template x-for="(row, idx) in palRows" :key="idx">
+                                <tr class="pal-row">
+                                    <td>
+                                        <select x-model="row.tat" @change="recalcPal()" class="pal-tat">
+                                            <option value="0.95">schlafen</option>
+                                            <option value="1.20">nur sitzend oder liegend</option>
+                                            <option value="1.45">sitzend, wenig Freizeit (Schreibtisch)</option>
+                                            <option value="1.65">sitzend + stehend/gehend (Kraftfahrer, Studenten)</option>
+                                            <option value="1.85">stehend/gehend (Verkäufer, Handwerker)</option>
+                                            <option value="2.00">körperlich anstrengend (Landwirte, Sportler)</option>
+                                            <option value="0">Eingabe 1.2 - 3.00</option>
+                                        </select>
+                                    </td>
+                                    <td><input type="text" x-model="row.zeit" @change="recalcPal()" size="5"></td>
+                                    <td><input type="text" x-model="row.faktor" @change="recalcPal()" :readonly="row.readonly" size="5"></td>
+                                    <td><input type="text" :value="row.sum" readonly size="5"></td>
+                                </tr>
+                            </template>
                         </tbody>
                         <tfoot>
-                            <tr id="mehr-row">
-                                <td><button type="button" class="btn btn-secondary btn-small" id="addTatBtn">+ weitere Tätigkeit</button></td>
-                                <td></td>
-                                <td></td>
-                                <td></td>
+                            <tr>
+                                <td><button type="button" class="btn btn-secondary btn-small" @click="addPalRow(0)">+ weitere Tätigkeit</button></td>
+                                <td></td><td></td><td></td>
                             </tr>
                             <tr>
                                 <td colspan="3">Summe für 24 Stunden</td>
-                                <td><input type="text" id="summe24" name="summe24" readonly size="7"></td>
+                                <td><input type="text" :value="summe24" readonly size="7"></td>
                             </tr>
                             <tr>
                                 <td colspan="3"><strong>PAL</strong> (Physical Activity Level)</td>
-                                <td><input type="text" id="pal" name="pal" readonly size="7"></td>
+                                <td><input type="text" :value="palValue" readonly size="7"></td>
                             </tr>
                             <tr class="result-row">
-                                <td colspan="3"><strong>Durchschnittlicher täglicher Leistungsumsatz</strong></td>
-                                <td><input type="text" id="leistungsumsatz" name="leistungsumsatz" readonly size="7"> kcal</td>
+                                <td colspan="3"><strong>Leistungsumsatz</strong></td>
+                                <td><input type="text" :value="leistungsumsatz || ''" readonly size="7"> kcal</td>
                             </tr>
                             <tr class="result-row result-row--highlight">
-                                <td colspan="3"><strong>Durchschnittlicher täglicher Gesamtumsatz / Tagesenergiebedarf</strong> (Grundumsatz &times; PAL)</td>
-                                <td><input type="text" id="gesamtumsatz" name="gesamtumsatz" readonly size="7"> kcal</td>
+                                <td colspan="3"><strong>Gesamtumsatz</strong> (Grundumsatz &times; PAL)</td>
+                                <td><input type="text" :value="gesamtumsatz || ''" readonly size="7"> kcal</td>
                             </tr>
                         </tfoot>
                     </table>
                 </div>
-                <div class="form-save-container">
-                    <button type="button" class="btn btn-primary" id="saveLocalBtn">Speichern (lokal)</button>
+
+                <div class="form-save-container" x-show="gesamtumsatz > 0">
+                    <button type="button" class="btn btn-primary" @click="saveProfile()">Speichern (lokal)</button>
                 </div>
             </section>
 
-            <!-- ============================================================
-                 Diätziel
-                 ============================================================ -->
-            <section id="diet-goal" class="section diet-goal-section hidden">
+            <!-- ==================== DIÄTZIEL ==================== -->
+            <section id="diet-goal" class="section" x-show="gesamtumsatz > 0" x-transition x-cloak>
                 <h2 class="section-title">Dein Diätziel</h2>
                 <p class="section-description">Basierend auf deinem Gesamtumsatz - wähle Tempo und Ziel.</p>
 
-                <!-- Tempo-Auswahl -->
                 <div class="tempo-select">
-                    <button class="tempo-btn" data-tempo="500">Moderat (&plusmn;500 kcal)</button>
-                    <button class="tempo-btn tempo-btn--active" data-tempo="1000">Normal (&plusmn;1.000 kcal)</button>
-                    <button class="tempo-btn tempo-btn--warn" data-tempo="1500">Schnell (&plusmn;1.500 kcal) <span class="tempo-warn">nicht empfohlen</span></button>
+                    <button class="tempo-btn" :class="{ 'tempo-btn--active': tempo === 500 }" @click="tempo = 500">Moderat (&plusmn;500 kcal)</button>
+                    <button class="tempo-btn" :class="{ 'tempo-btn--active': tempo === 1000 }" @click="tempo = 1000">Normal (&plusmn;1.000 kcal)</button>
+                    <button class="tempo-btn tempo-btn--warn" :class="{ 'tempo-btn--active': tempo === 1500 }" @click="tempo = 1500">Schnell (&plusmn;1.500 kcal) <span class="tempo-warn">nicht empfohlen</span></button>
                 </div>
 
-                <!-- Ziel-Karten -->
                 <div class="goal-cards">
-                    <div class="goal-card" data-goal="lose">
+                    <div class="goal-card" :class="{ 'goal-card--active': activeGoal === 'lose' }" @click="activeGoal = 'lose'">
                         <h3>Abnehmen</h3>
-                        <p class="goal-calories" id="loseCalories">--</p>
+                        <p class="goal-calories" x-text="loseCalories.toLocaleString('de-DE')"></p>
                         <p class="goal-unit">kcal/Tag</p>
-                        <p class="goal-description" id="loseDesc">Kaloriendefizit (-1.000 kcal)</p>
+                        <p class="goal-description" x-text="'Kaloriendefizit (-' + tempo.toLocaleString('de-DE') + ' kcal)'"></p>
                     </div>
-                    <div class="goal-card goal-card--active" data-goal="maintain">
+                    <div class="goal-card" :class="{ 'goal-card--active': activeGoal === 'maintain' }" @click="activeGoal = 'maintain'">
                         <h3>Gewicht halten</h3>
-                        <p class="goal-calories" id="maintainCalories">--</p>
+                        <p class="goal-calories" x-text="maintainCalories.toLocaleString('de-DE')"></p>
                         <p class="goal-unit">kcal/Tag</p>
                         <p class="goal-description">Kalorien auf Erhaltungsniveau</p>
                     </div>
-                    <div class="goal-card" data-goal="gain">
+                    <div class="goal-card" :class="{ 'goal-card--active': activeGoal === 'gain' }" @click="activeGoal = 'gain'">
                         <h3>Zunehmen</h3>
-                        <p class="goal-calories" id="gainCalories">--</p>
+                        <p class="goal-calories" x-text="gainCalories.toLocaleString('de-DE')"></p>
                         <p class="goal-unit">kcal/Tag</p>
-                        <p class="goal-description" id="gainDesc">Kalorienüberschuss (+1.000 kcal)</p>
+                        <p class="goal-description" x-text="'Kalorienüberschuss (+' + tempo.toLocaleString('de-DE') + ' kcal)'"></p>
                     </div>
                 </div>
-                <div class="diet-prognosis" id="dietPrognosis"></div>
+                <div class="diet-prognosis">
+                    <p class="prognosis-info"><strong>Prognose:</strong> Mit &plusmn;<span x-text="tempo.toLocaleString('de-DE')"></span> kcal/Tag veränderst du dein Gewicht um ca. <strong><span x-text="kgPerWeek"></span> kg pro Woche</strong> (ca. <span x-text="kgPerMonth"></span> kg pro Monat).</p>
+                    <p class="prognosis-hint" x-show="tempo >= 1500"><strong>Achtung:</strong> Ein Defizit/Überschuss von 1.500 kcal/Tag ist sehr aggressiv und wird nicht empfohlen.</p>
+                </div>
             </section>
 
-            <!-- ============================================================
-                 Makronährstoffe
-                 ============================================================ -->
-            <section id="macros" class="section macros-section hidden">
+            <!-- ==================== MAKROS ==================== -->
+            <section id="macros" class="section" x-show="gesamtumsatz > 0" x-transition x-cloak x-effect="if(gesamtumsatz > 0) drawMacroPie()">
                 <h2 class="section-title">Makronährstoff-Verteilung</h2>
                 <p class="section-description">Empfohlene Verteilung basierend auf deinem Ziel.</p>
 
                 <div class="macro-profiles">
-                    <button class="macro-profile-btn macro-profile-btn--active" data-profile="balanced">Ausgewogen</button>
-                    <button class="macro-profile-btn" data-profile="low-carb">Low-Carb</button>
-                    <button class="macro-profile-btn" data-profile="high-protein">High-Protein</button>
+                    <button class="macro-profile-btn" :class="{ 'macro-profile-btn--active': macroProfile === 'balanced' }" @click="macroProfile = 'balanced'; drawMacroPie()">Ausgewogen</button>
+                    <button class="macro-profile-btn" :class="{ 'macro-profile-btn--active': macroProfile === 'low-carb' }" @click="macroProfile = 'low-carb'; drawMacroPie()">Low-Carb</button>
+                    <button class="macro-profile-btn" :class="{ 'macro-profile-btn--active': macroProfile === 'high-protein' }" @click="macroProfile = 'high-protein'; drawMacroPie()">High-Protein</button>
                 </div>
 
                 <div class="macro-chart-container">
-                    <svg id="macroChart" viewBox="0 0 200 200" width="200" height="200" aria-label="Kreisdiagramm der Makronährstoff-Verteilung">
-                        <circle cx="100" cy="100" r="80" fill="none" stroke="#e0e0e0" stroke-width="30"/>
-                    </svg>
-                    <div class="macro-chart-legend" id="macroChartLegend"></div>
+                    <svg id="macroChart" viewBox="0 0 200 200" width="200" height="200"></svg>
+                    <div class="macro-chart-legend">
+                        <div class="legend-item"><span class="legend-color" style="background:#e74c3c"></span>Protein: <span x-text="macros.protein.pct + '% (' + macros.protein.g + 'g)'"></span></div>
+                        <div class="legend-item"><span class="legend-color" style="background:#f39c12"></span>Kohlenhydrate: <span x-text="macros.carbs.pct + '% (' + macros.carbs.g + 'g)'"></span></div>
+                        <div class="legend-item"><span class="legend-color" style="background:#3498db"></span>Fett: <span x-text="macros.fat.pct + '% (' + macros.fat.g + 'g)'"></span></div>
+                    </div>
                 </div>
 
                 <div class="macros-grid">
                     <div class="macro-card macro-card--protein">
                         <h3>Protein</h3>
-                        <span class="macro-value" id="proteinGrams">--</span>
+                        <span class="macro-value" x-text="macros.protein.g"></span>
                         <span class="macro-unit">g/Tag</span>
-                        <div class="macro-bar"><div class="macro-bar-fill" id="proteinBar" style="width: 0%"></div></div>
-                        <span class="macro-percent" id="proteinPercent">30%</span>
+                        <div class="macro-bar"><div class="macro-bar-fill" :style="'width:' + macros.protein.pct + '%'"></div></div>
+                        <span class="macro-percent" x-text="macros.protein.pct + '%'"></span>
                     </div>
                     <div class="macro-card macro-card--carbs">
                         <h3>Kohlenhydrate</h3>
-                        <span class="macro-value" id="carbsGrams">--</span>
+                        <span class="macro-value" x-text="macros.carbs.g"></span>
                         <span class="macro-unit">g/Tag</span>
-                        <div class="macro-bar"><div class="macro-bar-fill" id="carbsBar" style="width: 0%"></div></div>
-                        <span class="macro-percent" id="carbsPercent">40%</span>
+                        <div class="macro-bar"><div class="macro-bar-fill" :style="'width:' + macros.carbs.pct + '%'"></div></div>
+                        <span class="macro-percent" x-text="macros.carbs.pct + '%'"></span>
                     </div>
                     <div class="macro-card macro-card--fat">
                         <h3>Fett</h3>
-                        <span class="macro-value" id="fatGrams">--</span>
+                        <span class="macro-value" x-text="macros.fat.g"></span>
                         <span class="macro-unit">g/Tag</span>
-                        <div class="macro-bar"><div class="macro-bar-fill" id="fatBar" style="width: 0%"></div></div>
-                        <span class="macro-percent" id="fatPercent">30%</span>
+                        <div class="macro-bar"><div class="macro-bar-fill" :style="'width:' + macros.fat.pct + '%'"></div></div>
+                        <span class="macro-percent" x-text="macros.fat.pct + '%'"></span>
                     </div>
                 </div>
             </section>
 
-
             <!-- Share Overlay -->
-            <div class="overlay hidden" id="shareOverlay">
+            <div class="overlay" x-show="shareOverlay" x-transition.opacity x-cloak @click.self="shareOverlay = false">
                 <div class="overlay-content">
                     <div class="overlay-header">
                         <h3>Verlauf teilen</h3>
-                        <button class="overlay-close" id="shareOverlayClose">&times;</button>
+                        <button class="overlay-close" @click="shareOverlay = false">&times;</button>
                     </div>
                     <p>Kopiere diesen Link um deinen Verlauf zu teilen:</p>
-                    <input type="text" id="shareUrl" class="share-url-field" readonly>
-                    <button type="button" class="btn btn-primary btn-small" id="copyShareBtn">Link kopieren</button>
+                    <input type="text" id="shareUrl" class="share-url-field" :value="shareUrl" readonly @click="$el.select()">
+                    <button type="button" class="btn btn-primary btn-small" @click="copyShareUrl()">Link kopieren</button>
                 </div>
             </div>
 
@@ -452,14 +435,11 @@
         </div>
     </footer>
 
-    <!-- Toastify CDN -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
-
-    <script src="js/calculator.js" defer></script>
-    <script src="js/macros.js" defer></script>
-    <script src="js/storage.js" defer></script>
-    <script src="js/weight-tracker.js" defer></script>
-    <script src="js/main.js" defer></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="js/calc.js"></script>
+    <script src="js/chart.js"></script>
+    <script src="js/app.js"></script>
 </body>
 </html>
