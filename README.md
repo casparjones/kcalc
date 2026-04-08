@@ -21,6 +21,40 @@ Ein moderner, browserbasierter Kalorienbedarf-Rechner als statische GitHub Pages
 - Komplett clientseitig - keine Serveranbindung, alle Daten im localStorage
 - Deutsche Benutzeroberfläche
 
+## Tech-Stack
+
+- **HTML5** - Semantisches Markup
+- **CSS3** - Custom Properties, Flexbox, Grid, Media Queries, Mobile-First
+- **[Alpine.js](https://alpinejs.dev/)** - Reaktives UI-Framework (CDN, kein Build-Step)
+- **[Toastify.js](https://apvarun.github.io/toastify-js/)** - Toast-Benachrichtigungen (CDN)
+- **Canvas API** - Gewichtsverlauf-Diagramm
+- **SVG** - Makronährstoff-Kreisdiagramm
+- **localStorage** - Datenpersistenz (Multi-Profil)
+- **Docksal** - Lokale Entwicklungsumgebung
+- **GitHub Pages** - Hosting
+
+## Projektstruktur
+
+```
+kcalc/
+├── .docksal/
+│   ├── docksal.yml        # Docker Compose Konfiguration
+│   └── docksal.env        # Umgebungsvariablen
+├── css/
+│   ├── style.css          # Haupt-Stylesheet (Mobile-First)
+│   └── print.css          # Druckansicht
+├── js/
+│   ├── calc.js            # Reine Berechnungsfunktionen (BMR, TDEE, BMI, Makros)
+│   ├── chart.js           # Canvas Weight-Chart + SVG Makro-Pie
+│   └── app.js             # Alpine.js Store (State, UI-Logik, Profil-Verwaltung)
+├── img/
+│   └── favicon.svg        # Favicon
+├── index.html             # Hauptseite mit Alpine-Direktiven
+├── CNAME                  # Custom Domain (kcalc.de)
+├── LICENSE                # MIT Lizenz
+└── README.md
+```
+
 ## Lokale Entwicklung mit Docksal
 
 ### Voraussetzungen
@@ -30,48 +64,19 @@ Ein moderner, browserbasierter Kalorienbedarf-Rechner als statische GitHub Pages
 ### Setup
 
 ```bash
-# Repository klonen
-git clone <repo-url> kcalc
+git clone git@github.com:casparjones/kcalc.git
 cd kcalc
-
-# Docksal-Projekt starten
 fin up
-
-# Seite im Browser öffnen
 open http://kcalc.docksal.site
 ```
 
 ### Docksal-Befehle
 
-| Befehl    | Beschreibung                |
-|-----------|-----------------------------|
-| `fin up`  | Projekt starten             |
-| `fin stop`| Projekt stoppen             |
+| Befehl        | Beschreibung            |
+|---------------|-------------------------|
+| `fin up`      | Projekt starten         |
+| `fin stop`    | Projekt stoppen         |
 | `fin restart` | Projekt neu starten     |
-
-## Tech-Stack
-
-- **HTML5** - Semantisches Markup
-- **CSS3** - Custom Properties, Flexbox, Grid, Media Queries
-- **JavaScript** (Vanilla) - Keine externen Abhängigkeiten
-- **Docksal** - Lokale Entwicklungsumgebung
-- **GitHub Pages** - Hosting
-
-## Projektstruktur
-
-```
-kcalc/
-├── .docksal/
-│   ├── docksal.yml      # Docker Compose Konfiguration
-│   └── docksal.env      # Umgebungsvariablen
-├── css/
-│   └── style.css        # Haupt-Stylesheet
-├── js/
-│   └── main.js          # Haupt-JavaScript
-├── img/                 # Bilder und Icons
-├── index.html           # Hauptseite
-└── README.md            # Diese Datei
-```
 
 ## Lizenz
 
