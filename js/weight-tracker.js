@@ -94,32 +94,28 @@
 
         var startWeight = weightHistory.length > 0 ? weightHistory[0].weight : 0;
 
-        // Eingabezeile: Datum + Gewicht + "Neu" wird zum Button wenn Werte eingegeben
+        // Eingabezeile oben
         var html = '<tr class="weight-row weight-row--add">' +
             '<td><input type="date" id="weightDate" class="inline-input" value="' + todayStr() + '"></td>' +
             '<td><input type="number" id="weightValue" class="inline-input" min="1" max="400" step="0.1" placeholder="kg"></td>' +
             '<td colspan="2"><button class="btn-add-new" id="addWeightBtn" disabled>+ Neu</button></td>' +
             '</tr>';
 
-        // Daten-Zeilen
-        weightHistory.forEach(function (entry, i) {
+        // Daten-Zeilen absteigend (neueste oben)
+        for (var i = weightHistory.length - 1; i >= 0; i--) {
+            var entry = weightHistory[i];
             var diff = entry.weight - startWeight;
             var diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(1);
             var diffClass = diff < 0 ? 'diff-negative' : diff > 0 ? 'diff-positive' : 'diff-neutral';
 
             if (editingId === entry.id) {
-                // Edit-Modus: Formular in einer expanded Row
                 html += '<tr class="weight-row weight-row--editing">' +
-                    '<td colspan="4">' +
-                        '<div class="edit-form">' +
-                            '<div class="edit-field"><label>Datum</label><input type="date" class="edit-date inline-input" value="' + entry.date + '" data-id="' + entry.id + '"></div>' +
-                            '<div class="edit-field"><label>kg</label><input type="number" class="edit-weight inline-input" value="' + entry.weight + '" step="0.1" min="1" max="400" data-id="' + entry.id + '"></div>' +
-                            '<div class="edit-actions">' +
-                                '<button class="btn-icon btn-delete-edit" data-id="' + entry.id + '" title="Löschen">&#128465;</button>' +
-                                '<button class="btn-icon btn-cancel-edit" title="Abbrechen">&#10007;</button>' +
-                                '<button class="btn-icon btn-save-edit" data-id="' + entry.id + '" title="Speichern">&#10003;</button>' +
-                            '</div>' +
-                        '</div>' +
+                    '<td><input type="date" class="edit-date inline-input" value="' + entry.date + '" data-id="' + entry.id + '"></td>' +
+                    '<td><input type="number" class="edit-weight inline-input" value="' + entry.weight + '" step="0.1" min="1" max="400" data-id="' + entry.id + '"></td>' +
+                    '<td colspan="2" class="edit-actions-cell">' +
+                        '<button class="btn-icon btn-delete-edit" data-id="' + entry.id + '" title="Löschen">&#128465;</button>' +
+                        '<button class="btn-icon btn-cancel-edit" title="Abbrechen">&#10007;</button>' +
+                        '<button class="btn-icon btn-save-edit" data-id="' + entry.id + '" title="Speichern">&#10003;</button>' +
                     '</td></tr>';
             } else {
                 html += '<tr class="weight-row" data-id="' + entry.id + '">' +
@@ -129,7 +125,7 @@
                     '<td></td>' +
                     '</tr>';
             }
-        });
+        }
 
         tbody.innerHTML = html;
         bindListEvents(tbody);

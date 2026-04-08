@@ -1362,19 +1362,30 @@ h3 { font-size: var(--font-size-xl); }
 
 .weight-table {
     font-size: var(--font-size-xs);
+    table-layout: fixed;
+}
+
+.weight-table th,
+.weight-table td {
+    padding: var(--spacing-xs) var(--spacing-sm);
 }
 
 .weight-table th {
     position: sticky;
     top: 0;
-    padding: var(--spacing-xs) var(--spacing-sm);
     font-size: 11px;
     white-space: nowrap;
 }
 
-.weight-table td {
-    padding: var(--spacing-xs) var(--spacing-sm);
-}
+/* Feste Spaltenbreiten */
+.weight-table th:nth-child(1),
+.weight-table td:nth-child(1) { width: 40%; }
+.weight-table th:nth-child(2),
+.weight-table td:nth-child(2) { width: 25%; }
+.weight-table th:nth-child(3),
+.weight-table td:nth-child(3) { width: 20%; }
+.weight-table th:nth-child(4),
+.weight-table td:nth-child(4) { width: 15%; }
 
 .weight-table .inline-input {
     font-size: 12px;
@@ -1449,27 +1460,8 @@ h3 { font-size: var(--font-size-xl); }
     background: var(--color-primary-bg);
 }
 
-/* Edit form (expanded row) */
-.weight-row--editing > td {
-    padding: var(--spacing-xs) var(--spacing-sm) !important;
-}
-
-.edit-form {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-}
-
-.edit-field {
-    flex: 1;
-    min-width: 0;
-}
-
-.edit-field label {
-    display: none;
-}
-
-.edit-field .inline-input {
+/* Edit row - same layout as normal/add rows */
+.weight-row--editing .inline-input {
     width: 100%;
     padding: 3px 6px;
     border: 1px solid var(--color-primary);
@@ -1483,16 +1475,13 @@ h3 { font-size: var(--font-size-xl); }
     box-sizing: border-box;
 }
 
-.edit-field .inline-input:focus {
+.weight-row--editing .inline-input:focus {
     outline: none;
     box-shadow: 0 0 0 2px var(--color-primary-light);
 }
 
-.edit-actions {
-    display: flex;
-    gap: 3px;
-    align-items: center;
-    flex-shrink: 0;
+.edit-actions-cell {
+    white-space: nowrap;
 }
 
 .weight-row--editing {
