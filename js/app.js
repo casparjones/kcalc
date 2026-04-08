@@ -10,7 +10,7 @@ document.addEventListener('alpine:init', function () {
 
         return {
             // ===== State =====
-            view: 'loading',  // 'loading', 'form', 'saved'
+            view: 'form',  // 'form' or 'saved'
             form: { name: '', gewicht: '', groesse: '', alter: '', geschlecht: 'm', formel: 'harris', anpassung: 'n' },
             palRows: [{ tat: '0.95', zeit: '8:00', faktor: '0.95', sum: '0.00', readonly: true }],
             grundumsatz: 0,
