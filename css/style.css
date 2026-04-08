@@ -1072,8 +1072,13 @@ h3 { font-size: var(--font-size-xl); }
     flex-wrap: wrap;
 }
 
-.action-btn-container {
-    align-items: center;
+.form-save-container {
+    text-align: center;
+    padding: var(--spacing-lg) 0 0;
+}
+
+.form-save-container .btn {
+    min-width: 200px;
 }
 
 /* Overlay */

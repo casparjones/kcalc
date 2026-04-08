@@ -182,6 +182,24 @@
                         </thead>
                         <tbody>
                             <tr>
+                                <td><label for="saveName">Name</label></td>
+                                <td><input type="text" id="saveName" name="saveName" placeholder="z.B. Frank" maxlength="40"></td>
+                                <td></td>
+                                <td class="info-cell">Unter diesem Namen werden deine Daten lokal gespeichert.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <table class="data-table" id="eingabenCalc">
+                        <thead>
+                            <tr>
+                                <th>Angaben</th>
+                                <th>Wert</th>
+                                <th></th>
+                                <th>Info</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
                                 <td><label for="gewicht">Gewicht</label></td>
                                 <td><input type="number" id="gewicht" name="gewicht" min="1" max="400" step="0.1" placeholder="z.B. 75"></td>
                                 <td>kg</td>
@@ -308,6 +326,9 @@
                         </tfoot>
                     </table>
                 </div>
+                <div class="form-save-container">
+                    <button type="button" class="btn btn-primary" id="saveLocalBtn">Speichern (lokal)</button>
+                </div>
             </section>
 
             <!-- ============================================================
@@ -393,11 +414,6 @@
                 </div>
             </section>
 
-            <!-- Aktions-Buttons (nur im Bearbeitungsmodus) -->
-            <div class="action-btn-container hidden" id="actionBtnContainer">
-                <input type="text" id="saveName" class="save-name-input" placeholder="Name z.B. Frank" maxlength="40">
-                <button type="button" class="btn btn-small btn-primary" id="saveLocalBtn">Speichern</button>
-            </div>
 
             <!-- Share Overlay -->
             <div class="overlay hidden" id="shareOverlay">

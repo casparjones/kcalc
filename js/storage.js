@@ -198,7 +198,6 @@
         sec.classList.remove('hidden');
         document.getElementById('grundumsatz-section').classList.add('hidden');
         document.getElementById('leistungsumsatz-section').classList.add('hidden');
-        document.getElementById('actionBtnContainer').classList.add('hidden');
         updateNav();
     }
 
@@ -206,7 +205,6 @@
         document.getElementById('grundumsatz-section').classList.remove('hidden');
         document.getElementById('leistungsumsatz-section').classList.remove('hidden');
         document.getElementById('saved-summary').classList.add('hidden');
-        document.getElementById('actionBtnContainer').classList.remove('hidden');
         var n = document.getElementById('saveName');
         if (n && getActive()) n.value = getActive();
         updateNav();
