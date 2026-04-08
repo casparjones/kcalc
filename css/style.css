@@ -298,12 +298,11 @@ h3 { font-size: var(--font-size-xl); }
     transition: transform var(--transition-fast);
 }
 
-.profile-dropdown.open .profile-arrow {
+.profile-arrow.rotated {
     transform: rotate(180deg);
 }
 
 .profile-dropdown-menu {
-    display: none;
     position: absolute;
     top: calc(100% + 6px);
     right: 0;
@@ -314,10 +313,6 @@ h3 { font-size: var(--font-size-xl); }
     border: 1px solid var(--color-border);
     z-index: 200;
     overflow: hidden;
-}
-
-.profile-dropdown.open .profile-dropdown-menu {
-    display: block;
 }
 
 .profile-dropdown-section {
@@ -392,14 +387,9 @@ h3 { font-size: var(--font-size-xl); }
 
 /* Mobile Nav Drawer */
 .mobile-nav {
-    display: none;
     position: fixed;
     inset: 0;
     z-index: 300;
-}
-
-.mobile-nav.open {
-    display: block;
 }
 
 .mobile-nav-backdrop {
