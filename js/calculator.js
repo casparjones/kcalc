@@ -37,12 +37,12 @@
         return true;
     }
 
-    // Harris-Benedict Formel
+    // Harris-Benedict Formel (Koeffizienten wie diaethelfer.com)
     function harrisBenedict(g, gr, a, s) {
         if (s === 'm') {
-            return 66.47 + (13.7 * g) + (5.003 * gr) - (6.755 * a);
+            return 66.47 + (13.7 * g) + (5.0 * gr) - (6.8 * a);
         } else {
-            return 655.1 + (9.563 * g) + (1.85 * gr) - (4.676 * a);
+            return 655.1 + (9.6 * g) + (1.8 * gr) - (4.7 * a);
         }
     }
 
@@ -244,57 +244,95 @@
         if (luEl) luEl.value = leistungsumsatz;
         if (guEl) guEl.value = gesamtumsatz;
 
-        // Diätziel und Makros aktualisieren
-        if (gesamtumsatz > 0) {
+        // Diätziel und Makros nur aktualisieren wenn Formular sichtbar ist
+        var guSection = document.getElementById('grundumsatz-section');
+        if (gesamtumsatz > 0 && guSection && !guSection.classList.contains('hidden')) {
             displayDietGoals(gesamtumsatz);
         }
     }
 
     // ===== Diätziel =====
 
-    function displayDietGoals(tdee) {
-        var dietSection = document.getElementById('diet-goal');
-        if (!dietSection) return;
-        dietSection.classList.remove('hidden');
+    var currentTempo = 1000;
+    var currentTdee = 0;
 
-        var loseCalories = tdee - 500;
+    function updateDietCards() {
+        var tdee = currentTdee;
+        var delta = currentTempo;
+        if (tdee <= 0) return;
+
+        var loseCalories = tdee - delta;
         var maintainCalories = tdee;
-        var gainCalories = tdee + 500;
+        var gainCalories = tdee + delta;
 
         document.getElementById('loseCalories').textContent = loseCalories.toLocaleString('de-DE');
         document.getElementById('maintainCalories').textContent = maintainCalories.toLocaleString('de-DE');
         document.getElementById('gainCalories').textContent = gainCalories.toLocaleString('de-DE');
 
-        // Drucken-Button anzeigen
-        var printContainer = document.getElementById('printBtnContainer');
-        if (printContainer) printContainer.classList.remove('hidden');
+        // Beschreibungstexte aktualisieren
+        document.getElementById('loseDesc').textContent = 'Kaloriendefizit (-' + delta.toLocaleString('de-DE') + ' kcal)';
+        document.getElementById('gainDesc').textContent = 'Kalorienüberschuss (+' + delta.toLocaleString('de-DE') + ' kcal)';
 
-        // Klick-Handler für Ziel-Karten
-        var goalCards = dietSection.querySelectorAll('.goal-card');
-        goalCards.forEach(function (card) {
-            // Event-Handler neu setzen
-            var newCard = card.cloneNode(true);
-            card.parentNode.replaceChild(newCard, card);
+        // Prognose aktualisieren
+        var kgProWoche = (delta * 7 / 7700).toFixed(1).replace('.', ',');
+        var kgProMonat = (delta * 30 / 7700).toFixed(1).replace('.', ',');
+        var progEl = document.getElementById('dietPrognosis');
+        if (progEl) {
+            var warnHtml = delta >= 1500
+                ? '<p class="prognosis-hint"><strong>Achtung:</strong> Ein Defizit/Überschuss von 1.500 kcal/Tag ist sehr aggressiv und wird nicht empfohlen. Konsultiere einen Arzt oder Ernährungsberater.</p>'
+                : '';
+            progEl.innerHTML =
+                '<p class="prognosis-info"><strong>Prognose:</strong> Mit &plusmn;' + delta.toLocaleString('de-DE') + ' kcal/Tag veränderst du dein Gewicht um ca. <strong>' + kgProWoche + ' kg pro Woche</strong> (ca. ' + kgProMonat + ' kg pro Monat).</p>' +
+                warnHtml;
+        }
 
-            newCard.addEventListener('click', function () {
-                dietSection.querySelectorAll('.goal-card').forEach(function (c) {
-                    c.classList.remove('goal-card--active');
-                });
-                newCard.classList.add('goal-card--active');
+        // Aktives Ziel ermitteln und Event feuern
+        var dietSection = document.getElementById('diet-goal');
+        var activeCard = dietSection.querySelector('.goal-card--active');
+        var goal = activeCard ? activeCard.getAttribute('data-goal') : 'maintain';
+        var targetCalories = goal === 'lose' ? loseCalories : goal === 'gain' ? gainCalories : maintainCalories;
 
-                var goal = newCard.getAttribute('data-goal');
-                var targetCalories = goal === 'lose' ? loseCalories : goal === 'gain' ? gainCalories : maintainCalories;
-
-                document.dispatchEvent(new CustomEvent('dietGoalChanged', {
-                    detail: { goal: goal, calories: targetCalories, tdee: tdee }
-                }));
-            });
-        });
-
-        // Standard: Gewicht halten
         document.dispatchEvent(new CustomEvent('dietGoalChanged', {
-            detail: { goal: 'maintain', calories: maintainCalories, tdee: tdee }
+            detail: { goal: goal, calories: targetCalories, tdee: tdee }
         }));
+    }
+
+    function displayDietGoals(tdee) {
+        var dietSection = document.getElementById('diet-goal');
+        if (!dietSection) return;
+        dietSection.classList.remove('hidden');
+        currentTdee = tdee;
+
+        // Drucken-Button anzeigen
+        var actionContainer = document.getElementById('actionBtnContainer');
+        if (actionContainer) actionContainer.classList.remove('hidden');
+
+        // Tempo-Buttons binden (einmalig)
+        if (!dietSection.dataset.bound) {
+            dietSection.dataset.bound = '1';
+
+            var tempoBtns = dietSection.querySelectorAll('.tempo-btn');
+            tempoBtns.forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    tempoBtns.forEach(function (b) { b.classList.remove('tempo-btn--active'); });
+                    btn.classList.add('tempo-btn--active');
+                    currentTempo = parseInt(btn.getAttribute('data-tempo'), 10);
+                    updateDietCards();
+                });
+            });
+
+            // Ziel-Karten binden
+            var goalCards = dietSection.querySelectorAll('.goal-card');
+            goalCards.forEach(function (card) {
+                card.addEventListener('click', function () {
+                    goalCards.forEach(function (c) { c.classList.remove('goal-card--active'); });
+                    card.classList.add('goal-card--active');
+                    updateDietCards();
+                });
+            });
+        }
+
+        updateDietCards();
     }
 
     // ===== Grundumsatz-Ausgabe =====
@@ -415,6 +453,7 @@
     // Globale API
     window.Calculator = {
         getGrundumsatz: getGrundumsatz,
+        displayDietGoals: displayDietGoals,
         init: init
     };
 
