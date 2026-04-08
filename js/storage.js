@@ -298,6 +298,7 @@
         var resaveBtn = document.getElementById('resaveBtn');
         var profileToggle = document.getElementById('profileToggle');
         var deleteBtn = document.getElementById('deleteProfileBtn');
+        var newProfileBtn = document.getElementById('newProfileBtn');
         var shareBtn = document.getElementById('shareProfileBtn');
         var shareClose = document.getElementById('shareOverlayClose');
         var copyBtn = document.getElementById('copyShareBtn');
@@ -327,6 +328,32 @@
                         updateDropdown(); updateNav();
                     }
                 });
+            });
+        }
+
+        // Neues Profil anlegen
+        if (newProfileBtn) {
+            newProfileBtn.addEventListener('click', function () {
+                closeDD();
+                // Formular leeren
+                ['gewicht', 'groesse', 'alter'].forEach(function (id) {
+                    var el = document.getElementById(id);
+                    if (el) el.value = '';
+                });
+                document.getElementById('geschlecht').value = 'm';
+                document.getElementById('formel').value = 'harris';
+                document.getElementById('anpassung').value = 'n';
+                document.getElementById('grundumsatz').value = '';
+                document.getElementById('pal').value = '';
+                document.getElementById('leistungsumsatz').value = '';
+                document.getElementById('gesamtumsatz').value = '';
+                var nameInput = document.getElementById('saveName');
+                if (nameInput) nameInput.value = '';
+                // Gewichtsverlauf + Diätziel + Makros ausblenden
+                document.getElementById('weight-tracker').classList.add('hidden');
+                document.getElementById('diet-goal').classList.add('hidden');
+                document.getElementById('macros').classList.add('hidden');
+                showEditMode();
             });
         }
 
