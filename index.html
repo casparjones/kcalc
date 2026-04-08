@@ -171,16 +171,16 @@
                             <template x-for="entry in sortedWeightDesc" :key="entry.id">
                                 <tr class="weight-row" :class="{ 'weight-row--editing': editingId === entry.id }">
                                     <template x-if="editingId === entry.id">
-                                        <td colspan="4">
-                                            <div style="display:flex;align-items:center;gap:6px;">
-                                                <input type="date" class="inline-input" x-model="entry.date" style="flex:1;min-width:0;">
-                                                <input type="number" class="inline-input" x-model.number="entry.weight" step="0.1" min="1" max="400" style="flex:1;min-width:0;">
-                                                <div class="edit-actions-cell">
-                                                    <button class="btn-icon" @click="deleteEntry(entry)" title="Löschen">&#128465;</button>
-                                                    <button class="btn-icon" @click="cancelEdit()" title="Abbrechen">&#10007;</button>
-                                                    <button class="btn-icon btn-save-edit" @click="saveEdit(entry)" title="Speichern">&#10003;</button>
-                                                </div>
-                                            </div>
+                                        <td><input type="date" class="inline-input" x-model="entry.date"></td>
+                                    </template>
+                                    <template x-if="editingId === entry.id">
+                                        <td><input type="number" class="inline-input" x-model.number="entry.weight" step="0.1" min="1" max="400"></td>
+                                    </template>
+                                    <template x-if="editingId === entry.id">
+                                        <td colspan="2" class="edit-actions-cell">
+                                            <button class="btn-icon" @click="deleteEntry(entry)" title="Löschen">&#128465;</button>
+                                            <button class="btn-icon" @click="cancelEdit()" title="Abbrechen">&#10007;</button>
+                                            <button class="btn-icon btn-save-edit" @click="saveEdit(entry)" title="Speichern">&#10003;</button>
                                         </td>
                                     </template>
                                     <template x-if="editingId !== entry.id">
