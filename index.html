@@ -79,20 +79,19 @@
                 <div class="profile-dropdown" x-show="hasProfiles" x-cloak>
                     <button class="profile-dropdown-toggle" @click.stop="dropdownOpen = !dropdownOpen">
                         <span class="profile-avatar" x-text="(activeProfile || 'G').charAt(0).toUpperCase()"></span>
-                        <span class="profile-name-display" x-text="activeProfile || 'Geteilt'"></span>
+                        <span class="profile-name-col">
+                            <span class="profile-name-display" x-text="activeProfile || 'Geteilt'"></span>
+                            <span class="profile-temp-label" x-show="isTemporary" :title="'Klicke um ' + (activeProfile || 'Geteilt') + ' lokal zu speichern'" @click.stop="saveTemporary()">temporär</span>
+                        </span>
                         <span class="profile-arrow" :class="{ 'rotated': dropdownOpen }">&#9662;</span>
                     </button>
                     <div class="profile-dropdown-menu" x-show="dropdownOpen" x-transition @click.stop>
-                        <!-- Temp save banner -->
-                        <button class="profile-save-banner" x-show="isTemporary" @click="saveTemporary()">&#128190; Lokal speichern</button>
                         <!-- Profile switch -->
                         <template x-for="name in profileNames" :key="name">
                             <button class="profile-dropdown-item" :class="{ 'profile-dropdown-item--active': name === activeProfile && !isTemporary }" x-show="name !== activeProfile || isTemporary" x-text="name" @click="activateProfile(name)"></button>
                         </template>
                         <div class="profile-dropdown-divider"></div>
                         <button class="profile-dropdown-item" @click="newProfile()">&#10133; Neues Profil</button>
-                        <button class="profile-dropdown-item profile-dropdown-item--danger" @click="deleteProfile()">Profil löschen</button>
-                        <div class="profile-dropdown-divider"></div>
                         <button class="profile-dropdown-item" @click="openShare()">&#128279; Verlauf teilen</button>
                     </div>
                 </div>
@@ -130,8 +129,9 @@
                         <h2 class="section-title" x-text="activeProfile || 'Deine Daten'"></h2>
                         <div class="summary-actions">
                             <button class="summary-icon-btn" @click="editProfile()" title="Bearbeiten">&#9998;</button>
-                            <button class="summary-icon-btn" @click="resave()" title="Speichern">&#128190;</button>
+                            <button class="summary-icon-btn" x-show="isTemporary" @click="saveTemporary()" title="Lokal speichern">&#128190;</button>
                             <button class="summary-icon-btn" @click="window.print()" title="Drucken">&#128424;</button>
+                            <button class="summary-icon-btn summary-icon-btn--danger" x-show="!isTemporary" @click="deleteProfile()" title="Profil löschen">&#128465;</button>
                         </div>
                     </div>
                     <div class="summary-grid-compact">
