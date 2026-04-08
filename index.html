@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="format-detection" content="telephone=no">
+    <title>Diäthelfer - Kalorienbedarf Rechner | Grund- und Gesamtumsatz berechnen</title>
+
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="Online-Rechner um den eigenen Energiebedarf eines Tages zu berechnen. Grundumsatz nach Harris-Benedict und Mifflin-St.Jeor, Leistungsumsatz und Gesamtumsatz mit PAL-Faktoren.">
+    <meta name="keywords" content="Leistungsumsatz, Arbeitsumsatz, Gesamtumsatz, Grundumsatz, PAL, kcal, Diät, Rechner, Kalorienbedarf">
+    <meta name="author" content="Diäthelfer">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://example.github.io/kcalc/">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://example.github.io/kcalc/">
+    <meta property="og:title" content="Diäthelfer - Kalorienbedarf Rechner">
+    <meta property="og:description" content="Online-Rechner um den eigenen Energiebedarf eines Tages zu berechnen. Grundumsatz, Leistungsumsatz und Gesamtumsatz.">
+    <meta property="og:image" content="https://example.github.io/kcalc/img/og-image.png">
+    <meta property="og:locale" content="de_DE">
+    <meta property="og:site_name" content="Diäthelfer">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Diäthelfer - Kalorienbedarf Rechner">
+    <meta name="twitter:description" content="Online-Rechner um den eigenen Energiebedarf eines Tages zu berechnen.">
+    <meta name="twitter:image" content="https://example.github.io/kcalc/img/og-image.png">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+    <link rel="apple-touch-icon" sizes="180x180" href="img/apple-touch-icon.png">
+
+    <!-- Theme Color -->
+    <meta name="theme-color" content="#27ae60">
+
+    <!-- Schema.org Structured Data -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Diäthelfer - Kalorienbedarf Rechner",
+        "description": "Kostenloser Online-Rechner zur Berechnung des täglichen Kalorienbedarfs mit Harris-Benedict und Mifflin-St.Jeor Formeln.",
+        "url": "https://example.github.io/kcalc/",
+        "applicationCategory": "HealthApplication",
+        "operatingSystem": "Web Browser",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+        "inLanguage": "de"
+    }
+    </script>
+
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/print.css" media="print">
+</head>
+<body>
+    <!-- Header -->
+    <header class="site-header">
+        <div class="container">
+            <div class="header-brand">
+                <span class="header-logo" aria-hidden="true">&#9829;</span>
+                <div class="header-text">
+                    <h1 class="header-title">Diäthelfer</h1>
+                    <p class="header-subtitle">Berechnung des Grund- und Gesamtumsatzes</p>
+                </div>
+            </div>
+            <nav class="header-nav" aria-label="Hauptnavigation">
+                <ul>
+                    <li><a href="#grundumsatz-section">Grundumsatz</a></li>
+                    <li><a href="#leistungsumsatz-section">Leistungsumsatz</a></li>
+                    <li><a href="#diet-goal">Diätziel</a></li>
+                    <li><a href="#macros">Makros</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="site-main">
+        <div class="container">
+
+            <!-- ============================================================
+                 Berechnung des Grundumsatzes
+                 ============================================================ -->
+            <section id="grundumsatz-section" class="section">
+                <h2 class="section-title">Berechnung des Grundumsatzes</h2>
+                <p class="section-description">
+                    Mit Hilfe dieses Rechners kann der Gesamtumsatz berechnet werden.<br>
+                    Die Berechnungsgrundlagen sind bei <a href="https://de.wikipedia.org/wiki/Grundumsatz" target="_blank" rel="noopener">Wikipedia (Grundumsatz)</a> zu finden.
+                </p>
+
+                <div class="calc-form" id="grundumsatzForm">
+                    <table class="data-table" id="eingaben">
+                        <thead>
+                            <tr>
+                                <th>Angaben</th>
+                                <th>Wert</th>
+                                <th></th>
+                                <th>Info</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><label for="gewicht">Gewicht</label></td>
+                                <td><input type="number" id="gewicht" name="gewicht" min="1" max="400" step="0.1" placeholder="z.B. 75"></td>
+                                <td>kg</td>
+                                <td></td>
+                            </tr>
+                            <tr>
+                                <td><label for="groesse">Größe</label></td>
+                                <td><input type="number" id="groesse" name="groesse" min="50" max="250" placeholder="z.B. 175"></td>
+                                <td>cm</td>
+                                <td></td>
+                            </tr>
+                            <tr>
+                                <td><label for="alter">Alter</label></td>
+                                <td><input type="number" id="alter" name="alter" min="1" max="120" placeholder="z.B. 30"></td>
+                                <td>Jahre</td>
+                                <td></td>
+                            </tr>
+                            <tr>
+                                <td><label for="geschlecht">Geschlecht</label></td>
+                                <td>
+                                    <select id="geschlecht" name="geschlecht">
+                                        <option value="m">männlich</option>
+                                        <option value="w">weiblich</option>
+                                    </select>
+                                </td>
+                                <td></td>
+                                <td></td>
+                            </tr>
+                            <tr>
+                                <td><label for="formel">Formel</label></td>
+                                <td>
+                                    <select id="formel" name="formel">
+                                        <option value="harris" selected>Harris-Benedict</option>
+                                        <option value="mifflin">Mifflin-St.Jeor</option>
+                                        <option value="mittelwert">Mittelwert</option>
+                                    </select>
+                                </td>
+                                <td></td>
+                                <td></td>
+                            </tr>
+                            <tr>
+                                <td><label for="anpassung">Broca-Index-Anpassung</label></td>
+                                <td>
+                                    <select id="anpassung" name="anpassung">
+                                        <option value="j">Ja</option>
+                                        <option value="n" selected>Nein</option>
+                                    </select>
+                                </td>
+                                <td></td>
+                                <td class="info-cell">Ab einem BMI von 30 wird die Berechnung angepasst.</td>
+                            </tr>
+                            <tr class="result-row">
+                                <td><strong>Grundumsatz</strong></td>
+                                <td><input type="text" id="grundumsatz" name="grundumsatz" readonly></td>
+                                <td>kcal/24h</td>
+                                <td class="info-cell">Ist diejenige Energiemenge, die der Körper pro Tag bei völliger Ruhe, bei Indifferenztemperatur (28 °C) und nüchtern zur Aufrechterhaltung seiner Funktionen benötigt.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ============================================================
+                 Berechnung des Leistungs- und Gesamtumsatzes
+                 ============================================================ -->
+            <section id="leistungsumsatz-section" class="section">
+                <h2 class="section-title">Berechnung des Leistungs- und Gesamtumsatzes</h2>
+                <p class="section-description">
+                    Mit Hilfe dieses Rechners kann der Leistungs- und Gesamtumsatz berechnet werden.<br>
+                    Die Berechnungsgrundlagen sind bei <a href="https://de.wikipedia.org/wiki/Leistungsumsatz" target="_blank" rel="noopener">Wikipedia (Leistungsumsatz)</a> zu finden.
+                </p>
+
+                <div class="calc-form">
+                    <table class="data-table" id="eingaben_pal">
+                        <thead>
+                            <tr>
+                                <th>Tätigkeit</th>
+                                <th>Dauer hh:mm</th>
+                                <th>Faktor</th>
+                                <th>Summe</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pal-body">
+                            <tr class="pal-row">
+                                <td>
+                                    <select class="pal-tat" name="tat">
+                                        <option value="0.95" selected>schlafen</option>
+                                        <option value="1.20">nur sitzend oder liegend</option>
+                                        <option value="1.45">fast ausschließlich sitzend, wenig Freizeitaktivitäten (Schreibtischtätigkeit)</option>
+                                        <option value="1.65">überwiegend sitzend, mit zusätzlichen stehenden/gehenden Tätigkeiten (Kraftfahrer, Studenten, Laboranten)</option>
+                                        <option value="1.85">überwiegend stehende/gehende Tätigkeit (Verkäufer/innen, Kellner, Handwerker, Hausfrauen)</option>
+                                        <option value="2.00">körperlich anstrengende berufliche Tätigkeit (Bergleute, Landwirte, Waldarbeiter, Hochleistungssportler)</option>
+                                        <option value="0">Eingabe 1.2 - 3.00</option>
+                                    </select>
+                                </td>
+                                <td><input type="text" class="pal-zeit" name="zeit" value="8:00" size="5"></td>
+                                <td><input type="text" class="pal-faktor" name="faktor" value="0.95" readonly size="5"></td>
+                                <td><input type="text" class="pal-sum" name="sum" value="0" readonly size="5"></td>
+                            </tr>
+                        </tbody>
+                        <tfoot>
+                            <tr id="mehr-row">
+                                <td><button type="button" class="btn btn-secondary btn-small" id="addTatBtn">+ weitere Tätigkeit</button></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                            </tr>
+                            <tr>
+                                <td colspan="3">Summe für 24 Stunden</td>
+                                <td><input type="text" id="summe24" name="summe24" readonly size="7"></td>
+                            </tr>
+                            <tr>
+                                <td colspan="3"><strong>PAL</strong> (Physical Activity Level)</td>
+                                <td><input type="text" id="pal" name="pal" readonly size="7"></td>
+                            </tr>
+                            <tr class="result-row">
+                                <td colspan="3"><strong>Durchschnittlicher täglicher Leistungsumsatz</strong></td>
+                                <td><input type="text" id="leistungsumsatz" name="leistungsumsatz" readonly size="7"> kcal</td>
+                            </tr>
+                            <tr class="result-row result-row--highlight">
+                                <td colspan="3"><strong>Durchschnittlicher täglicher Gesamtumsatz / Tagesenergiebedarf</strong> (Grundumsatz &times; PAL)</td>
+                                <td><input type="text" id="gesamtumsatz" name="gesamtumsatz" readonly size="7"> kcal</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ============================================================
+                 Diätziel
+                 ============================================================ -->
+            <section id="diet-goal" class="section diet-goal-section hidden">
+                <h2 class="section-title">Dein Diätziel</h2>
+                <p class="section-description">Basierend auf deinem Gesamtumsatz - wähle dein Ziel.</p>
+                <div class="goal-cards">
+                    <div class="goal-card" data-goal="lose">
+                        <h3>Abnehmen</h3>
+                        <p class="goal-calories" id="loseCalories">--</p>
+                        <p class="goal-unit">kcal/Tag</p>
+                        <p class="goal-description">Moderates Kaloriendefizit (-500 kcal)</p>
+                    </div>
+                    <div class="goal-card goal-card--active" data-goal="maintain">
+                        <h3>Gewicht halten</h3>
+                        <p class="goal-calories" id="maintainCalories">--</p>
+                        <p class="goal-unit">kcal/Tag</p>
+                        <p class="goal-description">Kalorien auf Erhaltungsniveau</p>
+                    </div>
+                    <div class="goal-card" data-goal="gain">
+                        <h3>Zunehmen</h3>
+                        <p class="goal-calories" id="gainCalories">--</p>
+                        <p class="goal-unit">kcal/Tag</p>
+                        <p class="goal-description">Moderater Kalorienüberschuss (+500 kcal)</p>
+                    </div>
+                </div>
+                <div class="diet-prognosis">
+                    <p class="prognosis-info"><strong>Prognose:</strong> Mit einem Defizit von 500 kcal/Tag verlierst du ca. <strong>0,5 kg pro Woche</strong> (ca. 2 kg pro Monat). Mit einem Überschuss von 500 kcal/Tag nimmst du ca. <strong>0,5 kg pro Woche</strong> zu.</p>
+                    <p class="prognosis-hint">Hinweis: Eine Abnahme von mehr als 1 kg pro Woche wird nicht empfohlen.</p>
+                </div>
+            </section>
+
+            <!-- ============================================================
+                 Makronährstoffe
+                 ============================================================ -->
+            <section id="macros" class="section macros-section hidden">
+                <h2 class="section-title">Makronährstoff-Verteilung</h2>
+                <p class="section-description">Empfohlene Verteilung basierend auf deinem Ziel.</p>
+
+                <div class="macro-profiles">
+                    <button class="macro-profile-btn macro-profile-btn--active" data-profile="balanced">Ausgewogen</button>
+                    <button class="macro-profile-btn" data-profile="low-carb">Low-Carb</button>
+                    <button class="macro-profile-btn" data-profile="high-protein">High-Protein</button>
+                </div>
+
+                <div class="macro-chart-container">
+                    <svg id="macroChart" viewBox="0 0 200 200" width="200" height="200" aria-label="Kreisdiagramm der Makronährstoff-Verteilung">
+                        <circle cx="100" cy="100" r="80" fill="none" stroke="#e0e0e0" stroke-width="30"/>
+                    </svg>
+                    <div class="macro-chart-legend" id="macroChartLegend"></div>
+                </div>
+
+                <div class="macros-grid">
+                    <div class="macro-card macro-card--protein">
+                        <h3>Protein</h3>
+                        <span class="macro-value" id="proteinGrams">--</span>
+                        <span class="macro-unit">g/Tag</span>
+                        <div class="macro-bar"><div class="macro-bar-fill" id="proteinBar" style="width: 0%"></div></div>
+                        <span class="macro-percent" id="proteinPercent">30%</span>
+                    </div>
+                    <div class="macro-card macro-card--carbs">
+                        <h3>Kohlenhydrate</h3>
+                        <span class="macro-value" id="carbsGrams">--</span>
+                        <span class="macro-unit">g/Tag</span>
+                        <div class="macro-bar"><div class="macro-bar-fill" id="carbsBar" style="width: 0%"></div></div>
+                        <span class="macro-percent" id="carbsPercent">40%</span>
+                    </div>
+                    <div class="macro-card macro-card--fat">
+                        <h3>Fett</h3>
+                        <span class="macro-value" id="fatGrams">--</span>
+                        <span class="macro-unit">g/Tag</span>
+                        <div class="macro-bar"><div class="macro-bar-fill" id="fatBar" style="width: 0%"></div></div>
+                        <span class="macro-percent" id="fatPercent">30%</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Drucken-Button -->
+            <div class="print-btn-container hidden" id="printBtnContainer">
+                <button type="button" class="btn btn-secondary" id="printBtn" onclick="window.print()">Ergebnisse drucken</button>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="site-footer">
+        <div class="container">
+            <div class="footer-content">
+                <p class="footer-copyright">&copy; 2026 Diäthelfer - Kalorienbedarf Rechner</p>
+                <p class="footer-disclaimer">Die Berechnungen dienen nur zur Orientierung und ersetzen keine professionelle Ernährungsberatung. Alle Angaben ohne Gewähr.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/calculator.js" defer></script>
+    <script src="js/macros.js" defer></script>
+    <script src="js/main.js" defer></script>
+</body>
+</html>
