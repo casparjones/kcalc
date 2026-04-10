@@ -75,6 +75,14 @@
                     </ul>
                 </nav>
 
+                <!-- Sync Status Indicators -->
+                <button class="sync-status-btn" x-show="syncUrl" x-cloak @click="openSettings()" :title="syncStatusText">
+                    <span class="sync-dot" :class="'sync-dot--' + syncStatusColor"></span>
+                </button>
+                <button class="sync-status-btn" x-show="gdriveToken && isChrome" x-cloak @click="openSettings()" title="Google Drive Sync">
+                    <svg viewBox="0 0 24 24" width="14" height="14" style="vertical-align:middle"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                </button>
+
                 <!-- Profil Dropdown -->
                 <div class="profile-dropdown" x-show="hasProfiles" x-cloak>
                     <button class="profile-dropdown-toggle" @click.stop="dropdownOpen = !dropdownOpen">
@@ -93,11 +101,16 @@
                         <div class="profile-dropdown-divider"></div>
                         <button class="profile-dropdown-item" @click="newProfile()">&#10133; Neues Profil</button>
                         <button class="profile-dropdown-item" @click="openShare()">&#128279; Verlauf teilen</button>
+                        <div class="profile-dropdown-divider"></div>
+                        <button class="profile-dropdown-item" @click="exportData()">&#128230; Daten exportieren</button>
+                        <button class="profile-dropdown-item" @click="triggerImport()">&#128229; Daten importieren</button>
+                        <input type="file" id="backupFileInput" accept=".json" style="display:none" @change="handleImportFile($event)">
+                        <div class="profile-dropdown-divider"></div>
+                        <button class="profile-dropdown-item" @click="openSettings()">&#9881; Einstellungen</button>
                     </div>
                 </div>
 
-                <button class="burger-btn" @click="burgerOpen = true" aria-label="Menü" style="display:none">
-                </button>
+                <button class="settings-gear-btn" x-show="!hasProfiles" x-cloak @click="openSettings()" title="Einstellungen">&#9881;</button>
             </div>
         </div>
     </header>
@@ -406,8 +419,85 @@
                         <button class="overlay-close" @click="shareOverlay = false">&times;</button>
                     </div>
                     <p>Kopiere diesen Link um deinen Verlauf zu teilen:</p>
+                    <p class="share-limit-hint" x-show="shareLimitExceeded" x-cloak>Die URL enthält nur die letzten 30 Einträge. Alle Daten bleiben lokal erhalten.</p>
                     <input type="text" id="shareUrl" class="share-url-field" :value="shareUrl" readonly @click="$el.select()">
                     <button type="button" class="btn btn-primary btn-small" @click="copyShareUrl()">Link kopieren</button>
+                </div>
+            </div>
+
+            <!-- Settings Overlay -->
+            <div class="overlay" x-show="settingsOpen" x-transition.opacity x-cloak @click.self="settingsOpen = false">
+                <div class="overlay-content settings-overlay">
+                    <div class="overlay-header">
+                        <h3>&#9881; Einstellungen</h3>
+                        <button class="overlay-close" @click="settingsOpen = false">&times;</button>
+                    </div>
+
+                    <div class="settings-section">
+                        <h4 class="settings-section-title">CouchDB Sync</h4>
+                        <p>Synchronisiere deine Daten zwischen Geräten über eine eigene CouchDB-Instanz.</p>
+
+                        <div class="sync-status-bar">
+                            <span class="sync-dot sync-dot--lg" :class="'sync-dot--' + syncStatusColor"></span>
+                            <span class="sync-status-label" x-text="syncStatusText"></span>
+                            <span class="sync-error-msg" x-show="syncError" x-text="syncError" x-cloak></span>
+                        </div>
+
+                        <template x-if="!syncUrl || syncStatus === 'disconnected'">
+                            <div class="sync-connect-form">
+                                <label class="settings-label" for="syncUrlInput">Connection String</label>
+                                <input type="url" id="syncUrlInput" class="settings-input" x-model="syncUrl" placeholder="https://user:password@couch.domain.de/kcalc">
+                                <p class="settings-hint">Format: https://benutzername:passwort@dein-server.de/datenbankname</p>
+                                <button type="button" class="btn btn-primary btn-small" @click="startCouchSync()" :disabled="!syncUrl.trim()">Verbinden</button>
+                            </div>
+                        </template>
+
+                        <template x-if="syncUrl && syncStatus !== 'disconnected'">
+                            <div class="sync-connected-info">
+                                <label class="settings-label">Verbunden mit</label>
+                                <div class="sync-url-display" x-text="syncUrl.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@')"></div>
+                                <button type="button" class="btn btn-secondary btn-small btn-disconnect" @click="disconnectSync()">Trennen und löschen</button>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- Google Drive Sync (Chrome only) -->
+                    <div class="settings-section" x-show="isChrome" x-cloak>
+                        <h4 class="settings-section-title">Google Drive Sync</h4>
+                        <p>Sichere deine Daten in deinem Google Drive AppData-Ordner. Nur manueller Sync per Button.</p>
+
+                        <div class="gdrive-status-bar">
+                            <span class="sync-dot sync-dot--lg" :class="'sync-dot--' + gdriveStatusColor"></span>
+                            <span class="sync-status-label" x-text="gdriveStatusText"></span>
+                        </div>
+
+                        <template x-if="!gdriveToken">
+                            <div class="gdrive-connect">
+                                <button type="button" class="btn btn-gdrive" @click="gdriveConnect()">
+                                    <svg class="gdrive-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                                    Mit Google verbinden
+                                </button>
+                                <p class="settings-hint">Nutzt den AppData-Ordner - die App sieht keine anderen Dateien in deinem Drive.</p>
+                            </div>
+                        </template>
+
+                        <template x-if="gdriveToken">
+                            <div class="gdrive-connected">
+                                <div class="gdrive-actions">
+                                    <button type="button" class="btn btn-primary btn-small" @click="gdriveSyncUp()" :disabled="gdriveSyncing">
+                                        <span x-show="!gdriveSyncing">Zu Drive hochladen</span>
+                                        <span x-show="gdriveSyncing">Synchronisiere...</span>
+                                    </button>
+                                    <button type="button" class="btn btn-secondary btn-small" @click="gdriveSyncDown()" :disabled="gdriveSyncing">
+                                        <span x-show="!gdriveSyncing">Von Drive laden</span>
+                                        <span x-show="gdriveSyncing">Synchronisiere...</span>
+                                    </button>
+                                </div>
+                                <p class="settings-hint gdrive-last-sync" x-show="gdriveLastSync" x-text="'Letzter Sync: ' + fmtDate(gdriveLastSync)"></p>
+                                <button type="button" class="btn btn-secondary btn-small btn-disconnect" @click="gdriveDisconnect()">Google trennen</button>
+                            </div>
+                        </template>
+                    </div>
                 </div>
             </div>
 
@@ -436,7 +526,9 @@
     </footer>
 
     <!-- Scripts: calc+chart+app BEFORE Alpine (Alpine must init after app.js registers Alpine.data) -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pouchdb@9.0.0/dist/pouchdb.min.js"></script>
     <script src="js/calc.js"></script>
     <script src="js/chart.js"></script>
     <script src="js/app.js"></script>

@@ -18,7 +18,10 @@ Ein moderner, browserbasierter Kalorienbedarf-Rechner als statische GitHub Pages
 - Verlauf teilen per base64-URL (Auto-Update bei neueren Daten)
 - BMI-Anzeige mit Farbcodierung
 - Responsive Mobile-First Design mit Burger-Menü
-- Komplett clientseitig - keine Serveranbindung, alle Daten im localStorage
+- Export/Import als JSON-Backup
+- CouchDB Live-Sync via Connection String
+- Google Drive AppData Sync (nur Chrome)
+- Komplett clientseitig - keine Serveranbindung, Daten in IndexedDB (PouchDB)
 - Deutsche Benutzeroberfläche
 
 ## Tech-Stack
@@ -29,7 +32,7 @@ Ein moderner, browserbasierter Kalorienbedarf-Rechner als statische GitHub Pages
 - **[Toastify.js](https://apvarun.github.io/toastify-js/)** - Toast-Benachrichtigungen (CDN)
 - **Canvas API** - Gewichtsverlauf-Diagramm
 - **SVG** - Makronährstoff-Kreisdiagramm
-- **localStorage** - Datenpersistenz (Multi-Profil)
+- **[PouchDB](https://pouchdb.com/)** - Lokale Datenpersistenz (IndexedDB) mit optionalem CouchDB-Sync
 - **Docksal** - Lokale Entwicklungsumgebung
 - **GitHub Pages** - Hosting
 
@@ -77,6 +80,24 @@ open http://kcalc.docksal.site
 | `fin up`      | Projekt starten         |
 | `fin stop`    | Projekt stoppen         |
 | `fin restart` | Projekt neu starten     |
+
+## Self-Hosting
+
+### Google Drive Sync
+
+Der Google Drive Sync benötigt eine eigene OAuth Client ID aus der [Google Cloud Console](https://console.cloud.google.com/):
+
+1. Neues Projekt erstellen (oder bestehendes nutzen)
+2. Google Drive API aktivieren
+3. OAuth-Zustimmungsbildschirm einrichten (Typ: Extern)
+4. OAuth-Client-ID erstellen (Typ: Webanwendung)
+   - Autorisierte JavaScript-Ursprünge: deine Domain (z.B. `https://meine-domain.de`)
+5. Client ID in `js/app.js` eintragen - suche nach der bestehenden Client ID und ersetze sie:
+   ```javascript
+   client_id: 'DEINE_CLIENT_ID.apps.googleusercontent.com',
+   ```
+
+> **Hinweis:** GitHub Pages unterstützt keine Umgebungsvariablen. Die Client ID muss direkt im Code stehen. Das ist sicher - OAuth Client IDs sind öffentliche Identifier, kein Geheimnis.
 
 ## Lizenz
 
