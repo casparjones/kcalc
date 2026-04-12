@@ -478,6 +478,35 @@ h3 { font-size: var(--font-size-xl); }
     color: var(--color-primary-dark);
 }
 
+.mobile-nav-sync {
+    border-top: 1px solid var(--color-border-light);
+    padding: var(--spacing-sm) 0;
+}
+
+.mobile-nav-sync-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    width: 100%;
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: none;
+    border: none;
+    color: var(--color-text);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.mobile-nav-sync-item:hover {
+    background: var(--color-primary-bg);
+}
+
+.mobile-nav-sync-status {
+    margin-left: auto;
+    font-size: var(--font-size-xs);
+    color: var(--color-text-light);
+}
+
 /* Desktop Nav (hidden on mobile, shown on desktop) */
 .header-nav-desktop {
     display: none;
@@ -1174,7 +1203,7 @@ h3 { font-size: var(--font-size-xl); }
    Sync Status & Settings
    -------------------------------------------------------------------------- */
 .sync-indicators {
-    display: flex;
+    display: none;
     flex-direction: row;
     align-items: center;
     gap: 2px;
@@ -2073,6 +2102,10 @@ h3 { font-size: var(--font-size-xl); }
 
     .header-nav-desktop {
         display: block;
+    }
+
+    .sync-indicators {
+        display: flex;
     }
 
     .site-header {
