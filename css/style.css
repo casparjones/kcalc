@@ -1203,7 +1203,7 @@ h3 { font-size: var(--font-size-xl); }
    Sync Status & Settings
    -------------------------------------------------------------------------- */
 .sync-indicators {
-    display: none;
+    display: flex;
     flex-direction: row;
     align-items: center;
     gap: 2px;
@@ -2102,10 +2102,6 @@ h3 { font-size: var(--font-size-xl); }
 
     .header-nav-desktop {
         display: block;
-    }
-
-    .sync-indicators {
-        display: flex;
     }
 
     .site-header {
