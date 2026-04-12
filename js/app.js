@@ -251,6 +251,8 @@ document.addEventListener('alpine:init', function () {
             // ===== Google Drive Sync State =====
             isChrome: /Chrome/.test(navigator.userAgent) && !/Edg/.test(navigator.userAgent),
             gdriveToken: localStorage.getItem('kcalc_gdrive_token') || '',
+            gdriveTokenExpires: parseInt(localStorage.getItem('kcalc_gdrive_token_expires') || '0', 10),
+            gdriveTokenClient: null,
             gdriveSyncing: false,
             gdriveLastSync: localStorage.getItem('kcalc_gdrive_last_sync') || '',
 
@@ -986,36 +988,55 @@ document.addEventListener('alpine:init', function () {
             },
 
             // ===== Google Drive Sync =====
+            gdriveInitTokenClient: function (callback) {
+                var self = this;
+                if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+                    return null;
+                }
+                return google.accounts.oauth2.initTokenClient({
+                    client_id: '188307962475-cjrfkut3vsu067uc3n0pc5fpbjpi94cn.apps.googleusercontent.com',
+                    scope: 'https://www.googleapis.com/auth/drive.appdata',
+                    callback: function (response) {
+                        if (response.error) {
+                            if (callback) callback(response.error_description || response.error);
+                            return;
+                        }
+                        self.gdriveToken = response.access_token;
+                        var expiresAt = Date.now() + (response.expires_in || 3600) * 1000;
+                        self.gdriveTokenExpires = expiresAt;
+                        localStorage.setItem('kcalc_gdrive_token', response.access_token);
+                        localStorage.setItem('kcalc_gdrive_token_expires', String(expiresAt));
+                        if (callback) callback(null);
+                    }
+                });
+            },
+
             gdriveConnect: function () {
                 var self = this;
                 if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
                     this.toast('Google Identity Services nicht geladen. Bitte Seite neu laden.', 'error');
                     return;
                 }
-                var client = google.accounts.oauth2.initTokenClient({
-                    client_id: '188307962475-cjrfkut3vsu067uc3n0pc5fpbjpi94cn.apps.googleusercontent.com',
-                    scope: 'https://www.googleapis.com/auth/drive.appdata',
-                    callback: function (response) {
-                        if (response.error) {
-                            self.toast('Google-Anmeldung fehlgeschlagen: ' + (response.error_description || response.error), 'error');
-                            return;
-                        }
-                        self.gdriveToken = response.access_token;
-                        localStorage.setItem('kcalc_gdrive_token', response.access_token);
+                this.gdriveTokenClient = this.gdriveInitTokenClient(function (err) {
+                    if (err) {
+                        self.toast('Google-Anmeldung fehlgeschlagen: ' + err, 'error');
+                    } else {
                         self.toast('Mit Google verbunden', 'success');
                     }
                 });
-                client.requestAccessToken();
+                this.gdriveTokenClient.requestAccessToken();
             },
 
             gdriveDisconnect: function () {
                 if (this.gdriveToken) {
-                    // Revoke the token
                     google.accounts.oauth2.revoke(this.gdriveToken, function () {});
                 }
                 this.gdriveToken = '';
+                this.gdriveTokenExpires = 0;
+                this.gdriveTokenClient = null;
                 this.gdriveLastSync = '';
                 localStorage.removeItem('kcalc_gdrive_token');
+                localStorage.removeItem('kcalc_gdrive_token_expires');
                 localStorage.removeItem('kcalc_gdrive_last_sync');
                 this.toast('Google getrennt', 'info');
             },
@@ -1074,10 +1095,44 @@ document.addEventListener('alpine:init', function () {
                 });
             },
 
-            gdriveHandleTokenExpired: function () {
-                this.gdriveToken = '';
-                localStorage.removeItem('kcalc_gdrive_token');
-                this.toast('Google-Token abgelaufen. Bitte erneut verbinden.', 'warn');
+            gdriveRefreshToken: function () {
+                var self = this;
+                return new Promise(function (resolve, reject) {
+                    if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+                        reject(new Error('REAUTH_REQUIRED'));
+                        return;
+                    }
+                    if (!self.gdriveTokenClient) {
+                        self.gdriveTokenClient = self.gdriveInitTokenClient(function (err) {
+                            if (err) reject(new Error('REAUTH_REQUIRED'));
+                            else resolve(self.gdriveToken);
+                        });
+                    } else {
+                        // Update the callback for this refresh attempt
+                        self.gdriveTokenClient = self.gdriveInitTokenClient(function (err) {
+                            if (err) reject(new Error('REAUTH_REQUIRED'));
+                            else resolve(self.gdriveToken);
+                        });
+                    }
+                    self.gdriveTokenClient.requestAccessToken({ prompt: '' });
+                });
+            },
+
+            gdriveEnsureToken: function () {
+                var self = this;
+                // Token still valid (with 60s buffer)
+                if (this.gdriveToken && this.gdriveTokenExpires > Date.now() + 60000) {
+                    return Promise.resolve(this.gdriveToken);
+                }
+                // Try silent refresh
+                return this.gdriveRefreshToken().catch(function () {
+                    self.gdriveToken = '';
+                    self.gdriveTokenExpires = 0;
+                    localStorage.removeItem('kcalc_gdrive_token');
+                    localStorage.removeItem('kcalc_gdrive_token_expires');
+                    self.toast('Google-Token abgelaufen. Bitte erneut verbinden.', 'warn');
+                    return Promise.reject(new Error('TOKEN_EXPIRED'));
+                });
             },
 
             gdriveExportData: function () {
@@ -1121,9 +1176,11 @@ document.addEventListener('alpine:init', function () {
                 if (!this.gdriveToken) { this.toast('Nicht mit Google verbunden', 'warn'); return; }
                 this.gdriveSyncing = true;
 
-                this.gdriveExportData().then(function (data) {
-                    return self.gdriveFindFile(self.gdriveToken).then(function (fileId) {
-                        return self.gdriveUploadFile(self.gdriveToken, fileId, data);
+                this.gdriveEnsureToken().then(function (token) {
+                    return self.gdriveExportData().then(function (data) {
+                        return self.gdriveFindFile(token).then(function (fileId) {
+                            return self.gdriveUploadFile(token, fileId, data);
+                        });
                     });
                 }).then(function () {
                     var now = new Date().toISOString();
@@ -1131,9 +1188,7 @@ document.addEventListener('alpine:init', function () {
                     localStorage.setItem('kcalc_gdrive_last_sync', now);
                     self.toast('Daten zu Google Drive hochgeladen', 'success');
                 }).catch(function (err) {
-                    if (err.message === 'TOKEN_EXPIRED') {
-                        self.gdriveHandleTokenExpired();
-                    } else {
+                    if (err.message !== 'TOKEN_EXPIRED') {
                         console.error('Google Drive upload error:', err);
                         self.toast('Upload-Fehler: ' + err.message, 'error');
                     }
@@ -1147,28 +1202,27 @@ document.addEventListener('alpine:init', function () {
                 if (!this.gdriveToken) { this.toast('Nicht mit Google verbunden', 'warn'); return; }
                 this.gdriveSyncing = true;
 
-                this.gdriveFindFile(this.gdriveToken).then(function (fileId) {
-                    if (!fileId) {
-                        self.toast('Keine Daten in Google Drive gefunden', 'info');
-                        return null;
-                    }
-                    return self.gdriveDownloadFile(self.gdriveToken, fileId);
+                this.gdriveEnsureToken().then(function (token) {
+                    return self.gdriveFindFile(token).then(function (fileId) {
+                        if (!fileId) {
+                            self.toast('Keine Daten in Google Drive gefunden', 'info');
+                            return null;
+                        }
+                        return self.gdriveDownloadFile(token, fileId);
+                    });
                 }).then(function (data) {
                     if (!data) return;
                     if (!data.version || !data.profiles) {
                         self.toast('Ungueltige Daten in Google Drive', 'error');
                         return;
                     }
-                    // Merge: import the data using the existing import logic
                     self.executeImport(data);
                     var now = new Date().toISOString();
                     self.gdriveLastSync = now;
                     localStorage.setItem('kcalc_gdrive_last_sync', now);
                     self.toast('Daten von Google Drive geladen', 'success');
                 }).catch(function (err) {
-                    if (err.message === 'TOKEN_EXPIRED') {
-                        self.gdriveHandleTokenExpired();
-                    } else {
+                    if (err.message !== 'TOKEN_EXPIRED') {
                         console.error('Google Drive download error:', err);
                         self.toast('Download-Fehler: ' + err.message, 'error');
                     }
