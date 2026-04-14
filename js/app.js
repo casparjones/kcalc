@@ -230,6 +230,7 @@ document.addEventListener('alpine:init', function () {
 
             tempo: 1000,
             activeGoal: 'maintain',
+            goalSaved: false,
             macroProfile: 'balanced',
 
             weightHistory: [],
@@ -240,6 +241,9 @@ document.addEventListener('alpine:init', function () {
             dropdownOpen: false,
             burgerOpen: false,
             shareOverlay: false,
+            imageOverlay: false,
+            imageBlob: null,
+            canShareFiles: false,
             shareUrl: '',
 
             // ===== Sync State =====
@@ -385,6 +389,25 @@ document.addEventListener('alpine:init', function () {
             get kgPerWeek() { return (this.tempo * 7 / 7700).toFixed(1).replace('.', ','); },
             get kgPerMonth() { return (this.tempo * 30 / 7700).toFixed(1).replace('.', ','); },
 
+            goalLabel: function () {
+                return { lose: 'Abnehmen', maintain: 'Gewicht halten', gain: 'Zunehmen' }[this.activeGoal] || 'Gewicht halten';
+            },
+            tempoLabel: function () {
+                return { 500: 'Moderat (±500)', 1000: 'Normal (±1.000)', 1500: 'Schnell (±1.500)' }[this.tempo] || this.tempo;
+            },
+
+            saveDietGoal: function () {
+                this.goalSaved = true;
+                var self = this;
+                var profileData = this.profiles[this.activeProfile];
+                if (profileData && profileData.profile) {
+                    profileData.profile.tempo = this.tempo;
+                    profileData.profile.activeGoal = this.activeGoal;
+                    saveProfileToDB(this.activeProfile, profileData.profile);
+                    this.toast('Diätziel gespeichert', 'success');
+                }
+            },
+
             // ===== Macros =====
             get macros() { return Calc.macros(this.targetCalories, this.macroProfile); },
 
@@ -526,6 +549,16 @@ document.addEventListener('alpine:init', function () {
                     this.form.formel = pd.profile.formel || 'harris';
                     this.form.anpassung = pd.profile.anpassung || 'n';
                     this.form.savedAt = pd.profile.savedAt || '';
+                    // Diätziel laden
+                    if (pd.profile.tempo) {
+                        this.tempo = parseInt(pd.profile.tempo) || 1000;
+                        this.activeGoal = pd.profile.activeGoal || 'maintain';
+                        this.goalSaved = true;
+                    } else {
+                        this.tempo = 1000;
+                        this.activeGoal = 'maintain';
+                        this.goalSaved = false;
+                    }
                 }
                 this.weightHistory = pd.weightHistory || [];
                 this.recalculate();
@@ -547,6 +580,10 @@ document.addEventListener('alpine:init', function () {
                     leistungsumsatz: String(this.leistungsumsatz), gesamtumsatz: String(this.gesamtumsatz),
                     savedAt: new Date().toISOString()
                 };
+                if (this.goalSaved) {
+                    profileData.tempo = this.tempo;
+                    profileData.activeGoal = this.activeGoal;
+                }
                 var wh = prev.weightHistory || this.weightHistory || [];
                 if (wh.length === 0 && this.form.gewicht) {
                     wh.push({ date: this.todayStr(), weight: parseFloat(this.form.gewicht), id: Date.now() });
@@ -653,6 +690,269 @@ document.addEventListener('alpine:init', function () {
                 }
             },
 
+            // ===== Bild-Export (PNG) - reines Canvas-Rendering =====
+            exportAsImage: function () {
+                var self = this;
+                this.dropdownOpen = false;
+
+                try {
+                    var W = 1080;
+                    var font = '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif';
+                    var hasHistory = this.weightHistory && this.weightHistory.length > 0;
+                    var sorted = hasHistory ? this.weightHistory.slice().sort(function (a, b) { return b.date.localeCompare(a.date); }) : [];
+                    var last14 = sorted.slice(0, 14);
+                    var sw = this.startWeight;
+                    var oldestAll = hasHistory ? this.weightHistory.slice().sort(function (a, b) { return a.date.localeCompare(b.date); }) : [];
+                    var startId = oldestAll.length > 0 ? oldestAll[0].id : null;
+
+                    var items = [
+                        { label: 'Gewicht', value: this.form.gewicht ? this.form.gewicht + ' kg' : '\u2013' },
+                        { label: 'Gr\u00f6\u00dfe', value: this.form.groesse ? this.form.groesse + ' cm' : '\u2013' },
+                        { label: 'Alter', value: this.form.alter ? this.form.alter + ' Jahre' : '\u2013' },
+                        { label: 'BMI', value: this.bmi ? this.bmi.toFixed(1) : '\u2013' },
+                        { label: 'Grundumsatz', value: this.grundumsatz ? this.grundumsatz.toLocaleString('de-DE') + ' kcal' : '\u2013' },
+                        { label: 'Leistungsumsatz', value: this.leistungsumsatz ? this.leistungsumsatz.toLocaleString('de-DE') + ' kcal' : '\u2013' },
+                        { label: 'Gesamtumsatz', value: this.gesamtumsatz ? this.gesamtumsatz.toLocaleString('de-DE') + ' kcal' : '\u2013' }
+                    ];
+
+                    // Use a generous max height, trim to actual content at the end
+                    var scale = 2;
+                    var maxH = 4000;
+                    var canvas = document.createElement('canvas');
+                    canvas.width = W * scale;
+                    canvas.height = maxH * scale;
+                    var ctx = canvas.getContext('2d');
+                    ctx.scale(scale, scale);
+
+                    // Background
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, W, maxH);
+
+                    // === HEADER (green gradient) ===
+                    var headerH = 170;
+                    var grad = ctx.createLinearGradient(0, 0, W, headerH);
+                    grad.addColorStop(0, '#27ae60');
+                    grad.addColorStop(1, '#2ecc71');
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(0, 0, W, headerH);
+
+                    ctx.textAlign = 'center';
+
+                    // Zeile 1: kcalc.de - Gesundheitsdaten
+                    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+                    ctx.font = '600 18px ' + font;
+                    ctx.fillText('kcalc.de \u2013 Gesundheitsdaten', W / 2, 42);
+
+                    // Zeile 2: Profilname (groß)
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '700 42px ' + font;
+                    ctx.fillText(this.activeProfile || 'Profil', W / 2, 100);
+
+                    // Zeile 3: Datum (klein)
+                    ctx.font = '14px ' + font;
+                    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+                    ctx.fillText(new Date().toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' }), W / 2, 135);
+
+                    // === DATA GRID ===
+                    var gy = headerH;
+                    var gridRows = Math.ceil(items.length / 3);
+                    var colW = (W - 2) / 3;
+                    items.forEach(function (item, i) {
+                        var col = i % 3;
+                        var row = Math.floor(i / 3);
+                        var x = col * (colW + 1);
+                        var cy = gy + row * 81;
+
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(x, cy, colW, 80);
+
+                        // Grid lines
+                        ctx.fillStyle = '#e0e0e0';
+                        if (col < 2) ctx.fillRect(x + colW, cy, 1, 80);
+                        if (row > 0) ctx.fillRect(x, cy, colW, 1);
+
+                        ctx.textAlign = 'center';
+                        ctx.fillStyle = '#7f8c8d';
+                        ctx.font = '13px ' + font;
+                        ctx.fillText(item.label.toUpperCase(), x + colW / 2, cy + 32);
+
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.font = '700 26px ' + font;
+                        ctx.fillText(item.value, x + colW / 2, cy + 62);
+                    });
+                    // If last row has fewer than 3 items, fill remaining with white
+                    var lastRowItems = items.length % 3;
+                    if (lastRowItems > 0) {
+                        var lastRow = Math.floor(items.length / 3);
+                        for (var fi = lastRowItems; fi < 3; fi++) {
+                            ctx.fillStyle = '#ffffff';
+                            ctx.fillRect(fi * (colW + 1), gy + lastRow * 81, colW, 80);
+                        }
+                    }
+
+                    var curY = gy + gridRows * 81;
+
+                    // === WEIGHT CHART ===
+                    if (hasHistory) {
+                        ctx.textAlign = 'center';
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.font = '600 18px ' + font;
+                        ctx.fillText('Gewichtsverlauf', W / 2, curY + 35);
+
+                        // Draw chart into a temp canvas, then paste
+                        var tmpCanvas = document.createElement('canvas');
+                        tmpCanvas.id = '_exportChartTmp';
+                        var tmpWrap = document.createElement('div');
+                        tmpWrap.style.width = (W - 80) + 'px';
+                        tmpWrap.style.height = '300px';
+                        tmpWrap.style.position = 'fixed';
+                        tmpWrap.style.left = '-9999px';
+                        tmpWrap.style.top = '0';
+                        tmpWrap.appendChild(tmpCanvas);
+                        document.body.appendChild(tmpWrap);
+                        WeightChart.draw('_exportChartTmp', this.weightHistory);
+                        if (tmpCanvas.width > 0) {
+                            ctx.drawImage(tmpCanvas, 40, curY + 50, W - 80, 300);
+                        }
+                        document.body.removeChild(tmpWrap);
+                        curY += 370;
+                    }
+
+                    // === WEIGHT TABLE (last 14 entries) ===
+                    if (last14.length > 0) {
+                        ctx.textAlign = 'center';
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.font = '600 18px ' + font;
+                        ctx.fillText('Letzte Eintr\u00e4ge', W / 2, curY + 30);
+                        curY += 45;
+
+                        // Table header
+                        ctx.fillStyle = '#27ae60';
+                        ctx.fillRect(40, curY, W - 80, 36);
+                        ctx.fillStyle = '#ffffff';
+                        ctx.font = '600 15px ' + font;
+                        ctx.textAlign = 'left';
+                        ctx.fillText('Datum', 60, curY + 24);
+                        ctx.fillText('Gewicht', 400, curY + 24);
+                        ctx.fillText('Dif.', 700, curY + 24);
+                        curY += 36;
+
+                        // Table rows
+                        last14.forEach(function (entry, idx) {
+                            var rowBg = idx % 2 === 0 ? '#f8f9fa' : '#ffffff';
+                            ctx.fillStyle = rowBg;
+                            ctx.fillRect(40, curY, W - 80, 40);
+
+                            // Bottom border
+                            ctx.fillStyle = '#e0e0e0';
+                            ctx.fillRect(40, curY + 39, W - 80, 1);
+
+                            ctx.font = '15px ' + font;
+                            ctx.textAlign = 'left';
+                            ctx.fillStyle = '#2c3e50';
+                            ctx.fillText(self.fmtDate(entry.date), 60, curY + 26);
+                            ctx.fillText(entry.weight.toFixed(1) + ' kg', 400, curY + 26);
+
+                            // Differenz
+                            if (entry.id === startId) {
+                                ctx.fillStyle = '#7f8c8d';
+                                ctx.font = '600 15px ' + font;
+                                ctx.fillText('Start', 700, curY + 26);
+                            } else {
+                                var diff = entry.weight - sw;
+                                var diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(1);
+                                ctx.fillStyle = diff < 0 ? '#27ae60' : diff > 0 ? '#e74c3c' : '#7f8c8d';
+                                ctx.font = '600 15px ' + font;
+                                ctx.fillText(diffStr, 700, curY + 26);
+                            }
+                            curY += 40;
+                        });
+                    }
+
+                    // === FOOTER ===
+                    curY += 10;
+                    var footerH = 60;
+                    ctx.fillStyle = '#f8f9fa';
+                    ctx.fillRect(0, curY, W, footerH);
+                    ctx.fillStyle = '#e0e0e0';
+                    ctx.fillRect(0, curY, W, 1);
+
+                    ctx.textAlign = 'left';
+                    ctx.fillStyle = '#27ae60';
+                    ctx.font = '700 20px ' + font;
+                    ctx.fillText('kcalc.de', 48, curY + 38);
+
+                    ctx.textAlign = 'right';
+                    ctx.fillStyle = '#95a5a6';
+                    ctx.font = '14px ' + font;
+                    ctx.fillText('Kalorienbedarf Rechner', W - 48, curY + 36);
+
+                    var finalH = curY + footerH;
+
+                    // Trim canvas to actual content height
+                    var trimmed = document.createElement('canvas');
+                    trimmed.width = W * scale;
+                    trimmed.height = finalH * scale;
+                    var tCtx = trimmed.getContext('2d');
+                    tCtx.drawImage(canvas, 0, 0);
+
+                    // === Show in overlay ===
+                    trimmed.toBlob(function (blob) {
+                        if (!blob) { self.toast('Fehler beim Erzeugen des Bildes', 'error'); return; }
+                        self.imageBlob = blob;
+                        var img = document.getElementById('imagePreview');
+                        if (self._imageObjectUrl) URL.revokeObjectURL(self._imageObjectUrl);
+                        self._imageObjectUrl = URL.createObjectURL(blob);
+                        img.src = self._imageObjectUrl;
+                        // Check share API support
+                        try {
+                            var testFile = new File([blob], 'test.png', { type: 'image/png' });
+                            self.canShareFiles = !!(navigator.canShare && navigator.canShare({ files: [testFile] }));
+                        } catch (e) { self.canShareFiles = false; }
+                        self.imageOverlay = true;
+                    }, 'image/png');
+
+                } catch (err) {
+                    console.error('[Bild-Export] Fehler:', err);
+                    self.toast('Fehler: ' + err.message, 'error');
+                }
+            },
+
+            closeImageOverlay: function () {
+                this.imageOverlay = false;
+                if (this._imageObjectUrl) {
+                    URL.revokeObjectURL(this._imageObjectUrl);
+                    this._imageObjectUrl = null;
+                }
+                this.imageBlob = null;
+            },
+
+            downloadImage: function () {
+                if (!this.imageBlob) return;
+                var url = URL.createObjectURL(this.imageBlob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = 'gesundheitsdaten.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                this.toast('Bild heruntergeladen!', 'success');
+            },
+
+            shareImage: function () {
+                if (!this.imageBlob) return;
+                var self = this;
+                var file = new File([this.imageBlob], 'gesundheitsdaten.png', { type: 'image/png' });
+                navigator.share({ title: 'Meine Gesundheitsdaten', files: [file] }).then(function () {
+                    self.toast('Erfolgreich geteilt!', 'success');
+                }).catch(function (err) {
+                    if (err.name !== 'AbortError') {
+                        self.toast('Teilen fehlgeschlagen', 'error');
+                    }
+                });
+            },
+
             loadShareUrl: function () {
                 var enc = new URLSearchParams(window.location.search).get('d');
                 if (!enc) return null;
@@ -703,6 +1003,9 @@ document.addEventListener('alpine:init', function () {
                     this.tempData = shared;
                     this.activeProfile = shared.name || 'Geteilt';
                     this.weightHistory = shared.weightHistory || [];
+                    this.tempo = 1000;
+                    this.activeGoal = 'maintain';
+                    this.goalSaved = false;
                     if (shared.profile) {
                         this.form.name = shared.name;
                         this.form.gewicht = shared.profile.gewicht || '';
@@ -737,6 +1040,184 @@ document.addEventListener('alpine:init', function () {
                 this.tempData = null;
                 this.weightHistory = wh;
                 this.toast('"' + name + '" lokal gespeichert', 'success');
+            },
+
+            // ===== PDF Export =====
+            exportAsPdf: function () {
+                var self = this;
+                this.dropdownOpen = false;
+                try {
+                    if (!window.jspdf || !window.jspdf.jsPDF) {
+                        self.toast('jsPDF nicht geladen', 'error');
+                        return;
+                    }
+                    var doc = new window.jspdf.jsPDF('p', 'mm', 'a4');
+                    var profileName = self.activeProfile || 'Unbekannt';
+                    var today = self.fmtDate(new Date());
+
+                    // Zeile 1: kcalc.de - Gesundheitsdaten (klein)
+                    doc.setFontSize(10);
+                    doc.setTextColor(100);
+                    doc.text('kcalc.de \u2013 Gesundheitsdaten', 14, 16);
+
+                    // Rechts oben: Erstellt am DD.MM.YYYY
+                    doc.setFontSize(10);
+                    doc.text('Erstellt am ' + today, 196, 16, { align: 'right' });
+
+                    // Zeile 2: Profilname (groß)
+                    doc.setTextColor(0);
+                    doc.setFontSize(20);
+                    doc.setFont(undefined, 'bold');
+                    doc.text(profileName, 14, 26);
+                    doc.setFont(undefined, 'normal');
+
+                    // Data grid (4x3 like on the page)
+                    var y = 36;
+                    var geschlechtLabel = self.form.geschlecht === 'm' ? 'M' : 'W';
+                    var bmiVal = self.bmi ? self.bmi.toFixed(1) : '-';
+                    var bmiIcon = self.bmiInfo ? ' ' + self.bmiInfo.icon : '';
+
+                    var cells = [
+                        { label: 'Gewicht', value: (self.form.gewicht || '-') + ' kg' },
+                        { label: 'Größe', value: (self.form.groesse || '-') + ' cm' },
+                        { label: 'Alter', value: (self.form.alter || '-') + ' J.' },
+                        { label: 'Geschlecht', value: geschlechtLabel },
+                        { label: 'Formel', value: self.formelText() },
+                        { label: 'Broca', value: self.form.anpassung === 'j' ? 'Ja' : 'Nein' },
+                        { label: 'PAL', value: self.palValue || '-' },
+                        { label: 'Erstellt', value: self.fmtDate(self.form.savedAt) },
+                        { label: 'BMI', value: bmiVal + bmiIcon, highlight: false },
+                        { label: 'Grundumsatz', value: (self.grundumsatz || '-') + ' kcal', highlight: true },
+                        { label: 'Leistungsumsatz', value: (self.leistungsumsatz || '-') + ' kcal', highlight: true },
+                        { label: 'Gesamtumsatz', value: (self.gesamtumsatz || '-') + ' kcal', highlight: true }
+                    ];
+
+                    var cols = 4;
+                    var cellW = 180 / cols;
+                    var cellH = 14;
+
+                    for (var i = 0; i < cells.length; i++) {
+                        var col = i % cols;
+                        var row = Math.floor(i / cols);
+                        var cx = 14 + col * cellW;
+                        var cy = y + row * cellH;
+
+                        // Background
+                        if (cells[i].highlight) {
+                            doc.setFillColor(232, 245, 233);
+                        } else {
+                            doc.setFillColor(248, 249, 250);
+                        }
+                        doc.rect(cx, cy, cellW, cellH, 'F');
+
+                        // Border
+                        doc.setDrawColor(224, 224, 224);
+                        doc.rect(cx, cy, cellW, cellH, 'S');
+
+                        // Label (small, grey)
+                        doc.setFontSize(7);
+                        doc.setTextColor(127, 140, 141);
+                        doc.setFont(undefined, 'normal');
+                        doc.text(cells[i].label, cx + 2, cy + 5);
+
+                        // Value (bold)
+                        doc.setFontSize(10);
+                        doc.setTextColor(44, 62, 80);
+                        doc.setFont(undefined, 'bold');
+                        doc.text(cells[i].value, cx + 2, cy + 11.5);
+                    }
+                    doc.setFont(undefined, 'normal');
+                    doc.setDrawColor(0);
+                    doc.setTextColor(0);
+                    y += Math.ceil(cells.length / cols) * cellH;
+
+                    // Helper: draw weight table + save PDF
+                    function drawWeightTableAndSave(startY) {
+                        var wy = startY;
+                        if (self.weightHistory && self.weightHistory.length > 0) {
+                            var sorted = self.weightHistory.slice().sort(function (a, b) { return b.date.localeCompare(a.date); });
+                            var last14 = sorted.slice(0, 14);
+                            var sw = self.startWeight;
+                            var oldestAll = self.weightHistory.slice().sort(function (a, b) { return a.date.localeCompare(b.date); });
+                            var startId = oldestAll.length > 0 ? oldestAll[0].id : null;
+
+                            wy += 10;
+                            if (wy > 250) { doc.addPage(); wy = 20; }
+                            doc.setFontSize(13);
+                            doc.text('Letzte Einträge', 14, wy);
+                            wy += 8;
+
+                            // Table header
+                            doc.setFillColor(39, 174, 96);
+                            doc.rect(14, wy - 5, 180, 8, 'F');
+                            doc.setTextColor(255);
+                            doc.setFontSize(11);
+                            doc.setFont(undefined, 'bold');
+                            doc.text('Datum', 16, wy);
+                            doc.text('Gewicht', 80, wy);
+                            doc.text('Dif.', 140, wy);
+                            doc.setTextColor(0);
+                            wy += 8;
+
+                            // Table rows
+                            for (var j = 0; j < last14.length; j++) {
+                                if (wy > 280) { doc.addPage(); wy = 20; }
+                                var rbg = j % 2 === 0 ? 248 : 255;
+                                doc.setFillColor(rbg, rbg, rbg);
+                                doc.rect(14, wy - 5, 180, 8, 'F');
+                                doc.setFont(undefined, 'normal');
+                                doc.text(self.fmtDate(last14[j].date), 16, wy);
+                                doc.text(last14[j].weight.toFixed(1) + ' kg', 80, wy);
+
+                                // Differenz zum Ausgangsgewicht
+                                if (last14[j].id === startId) {
+                                    doc.setTextColor(127, 140, 141);
+                                    doc.text('Start', 140, wy);
+                                } else {
+                                    var diff = last14[j].weight - sw;
+                                    var diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(1);
+                                    if (diff < 0) { doc.setTextColor(39, 174, 96); }
+                                    else if (diff > 0) { doc.setTextColor(231, 76, 60); }
+                                    else { doc.setTextColor(127, 140, 141); }
+                                    doc.text(diffStr, 140, wy);
+                                }
+                                doc.setTextColor(0);
+                                wy += 8;
+                            }
+                        }
+                        doc.save('gesundheitsdaten.pdf');
+                        self.toast('PDF exportiert', 'success');
+                    }
+
+                    // Weight chart
+                    var canvas = document.getElementById('weightChart');
+                    if (canvas && self.weightHistory && self.weightHistory.length > 0) {
+                        y += 10;
+                        doc.setFontSize(13);
+                        doc.text('Gewichtsverlauf', 14, y);
+                        y += 6;
+
+                        html2canvas(canvas, { scale: 2, backgroundColor: '#ffffff' }).then(function (capturedCanvas) {
+                            var imgData = capturedCanvas.toDataURL('image/png');
+                            var imgWidth = 180;
+                            var imgHeight = (capturedCanvas.height / capturedCanvas.width) * imgWidth;
+                            if (y + imgHeight > 280) {
+                                doc.addPage();
+                                y = 20;
+                            }
+                            doc.addImage(imgData, 'PNG', 14, y, imgWidth, imgHeight);
+                            drawWeightTableAndSave(y + imgHeight);
+                        }).catch(function (err) {
+                            console.error('html2canvas error:', err);
+                            drawWeightTableAndSave(y);
+                        });
+                    } else {
+                        drawWeightTableAndSave(y);
+                    }
+                } catch (err) {
+                    console.error('PDF export error:', err);
+                    self.toast('Fehler beim PDF-Export', 'error');
+                }
             },
 
             // ===== Backup Export / Import =====
@@ -1260,13 +1741,20 @@ document.addEventListener('alpine:init', function () {
             // ===== Helpers =====
             todayStr: function () { return new Date().toISOString().split('T')[0]; },
 
-            fmtDate: function (iso) {
-                if (!iso) return '-';
-                try { return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
-                catch (e) { return iso; }
+            fmtDate: function (d) {
+                if (!d) return '-';
+                if (d instanceof Date) {
+                    var dd = ('0' + d.getDate()).slice(-2);
+                    var mm = ('0' + (d.getMonth() + 1)).slice(-2);
+                    return dd + '.' + mm + '.' + d.getFullYear();
+                }
+                // String 'YYYY-MM-DD' or ISO
+                var s = String(d).split('T')[0];
+                var p = s.split('-');
+                if (p.length !== 3) return d;
+                return ('0' + p[2]).slice(-2) + '.' + ('0' + p[1]).slice(-2) + '.' + p[0];
             },
-
-            fmtWeightDate: function (d) { var p = d.split('-'); return p[2] + '.' + p[1] + '.' + p[0]; },
+            fmtWeightDate: function (d) { return this.fmtDate(d); },
 
             formelText: function () {
                 return { harris: 'Harris-Benedict', mifflin: 'Mifflin-St.Jeor', mittelwert: 'Mittelwert' }[this.form.formel] || this.form.formel;

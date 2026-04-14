@@ -410,12 +410,27 @@ h3 { font-size: var(--font-size-xl); }
     position: fixed;
     inset: 0;
     z-index: 300;
+    visibility: hidden;
+    pointer-events: none;
+    transition: visibility 0s linear 0.3s;
+}
+
+.mobile-nav.open {
+    visibility: visible;
+    pointer-events: auto;
+    transition: visibility 0s linear 0s;
 }
 
 .mobile-nav-backdrop {
     position: absolute;
     inset: 0;
     background: rgba(0,0,0,0.5);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+
+.mobile-nav.open .mobile-nav-backdrop {
+    opacity: 1;
 }
 
 .mobile-nav-drawer {
@@ -430,6 +445,12 @@ h3 { font-size: var(--font-size-xl); }
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mobile-nav.open .mobile-nav-drawer {
+    transform: translateX(0);
 }
 
 .mobile-nav-header {
@@ -1154,6 +1175,33 @@ h3 { font-size: var(--font-size-xl); }
     font-size: var(--font-size-sm);
     color: var(--color-text-light);
     margin-bottom: var(--spacing-md);
+}
+
+.image-overlay-content {
+    max-width: 600px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.image-overlay-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+}
+
+.image-overlay-scroll {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-light);
+}
+
+.image-overlay-scroll img {
+    display: block;
+    width: 100%;
+    height: auto;
 }
 
 .share-url-field {
@@ -1972,6 +2020,40 @@ h3 { font-size: var(--font-size-xl); }
 .result-normal .result-value { color: var(--color-primary-dark); }
 .result-high .result-value { color: var(--color-accent); }
 
+.goal-saved-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-md);
+}
+
+@media (min-width: 600px) {
+    .goal-saved-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+.goal-saved-item {
+    display: flex;
+    flex-direction: column;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--color-bg-light);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+}
+
+.goal-saved-item--highlight {
+    background: var(--color-primary-bg);
+    border-color: var(--color-primary);
+}
+
+.goal-saved-action {
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px dashed var(--color-border);
+}
+
 .diet-prognosis {
     background: var(--color-warning-light);
     padding: var(--spacing-lg);
@@ -2338,6 +2420,157 @@ h3 { font-size: var(--font-size-xl); }
 .btn-primary {
     background: -webkit-linear-gradient(315deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
     background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+}
+
+/* --------------------------------------------------------------------------
+   Share Card (off-screen, for image export via html2canvas)
+   -------------------------------------------------------------------------- */
+.share-card {
+    width: 1080px;
+    background: #ffffff;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #2c3e50;
+    overflow: hidden;
+}
+
+.share-card-header {
+    background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+    color: #ffffff;
+    padding: 40px 48px 32px;
+    text-align: center;
+}
+
+.share-card-logo {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    opacity: 0.85;
+    margin-bottom: 8px;
+}
+
+.share-card-title {
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.share-card-profile {
+    font-size: 20px;
+    font-weight: 600;
+    opacity: 0.9;
+}
+
+.share-card-date {
+    font-size: 14px;
+    opacity: 0.75;
+    margin-top: 4px;
+}
+
+.share-card-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: #e0e0e0;
+    margin: 0;
+}
+
+.share-card-item {
+    background: #ffffff;
+    padding: 24px 20px;
+    text-align: center;
+}
+
+.share-card-item:last-child:nth-child(3n+1) {
+    grid-column: 1 / -1;
+}
+
+.share-card-label {
+    display: block;
+    font-size: 13px;
+    color: #7f8c8d;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+}
+
+.share-card-value {
+    display: block;
+    font-size: 26px;
+    font-weight: 700;
+    color: #2c3e50;
+}
+
+.share-card-chart-section {
+    padding: 32px 40px 24px;
+    background: #ffffff;
+}
+
+.share-card-chart-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #2c3e50;
+    margin-bottom: 16px;
+    text-align: center;
+}
+
+.share-card-chart-wrap {
+    width: 1000px;
+    height: 300px;
+    margin: 0 auto;
+}
+
+.share-card-footer {
+    background: #f8f9fa;
+    border-top: 1px solid #e0e0e0;
+    padding: 20px 48px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.share-card-brand {
+    font-size: 20px;
+    font-weight: 700;
+    color: #27ae60;
+}
+
+.share-card-tagline {
+    font-size: 14px;
+    color: #95a5a6;
+}
+
+.share-card-table-section {
+    padding: 24px 40px 16px;
+    background: #ffffff;
+}
+
+.share-card-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 15px;
+}
+
+.share-card-table thead th {
+    background: #27ae60;
+    color: #ffffff;
+    font-weight: 600;
+    padding: 10px 16px;
+    text-align: left;
+}
+
+.share-card-table tbody td {
+    padding: 8px 16px;
+    border-bottom: 1px solid #e0e0e0;
+    color: #2c3e50;
+}
+
+.share-card-table tbody tr:nth-child(even) {
+    background: #f8f9fa;
+}
+
+.share-card-table tbody tr:last-child td {
+    border-bottom: none;
 }
 
 /* IE11: CSS Custom Properties fallback note

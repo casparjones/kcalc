@@ -93,6 +93,8 @@
                         <div class="profile-dropdown-divider"></div>
                         <button class="profile-dropdown-item" @click="newProfile()">&#10133; Neues Profil</button>
                         <button class="profile-dropdown-item" @click="openShare()">&#128279; Verlauf teilen</button>
+                        <button class="profile-dropdown-item" @click="exportAsPdf()">&#128196; Als PDF exportieren</button>
+                        <button class="profile-dropdown-item" @click="exportAsImage()">&#128444; Als Bild exportieren</button>
                         <div class="profile-dropdown-divider"></div>
                         <button class="profile-dropdown-item" @click="exportData()">&#128230; Daten exportieren</button>
                         <button class="profile-dropdown-item" @click="triggerImport()">&#128229; Daten importieren</button>
@@ -119,9 +121,9 @@
     </header>
 
     <!-- Mobile Nav -->
-    <nav class="mobile-nav" :class="{ open: burgerOpen }" x-show="burgerOpen" x-transition.opacity>
+    <nav class="mobile-nav" :class="{ open: burgerOpen }">
         <div class="mobile-nav-backdrop" @click="burgerOpen = false"></div>
-        <div class="mobile-nav-drawer" x-transition.origin.left>
+        <div class="mobile-nav-drawer">
             <div class="mobile-nav-header">
                 <span>Navigation</span>
                 <button class="mobile-nav-close" @click="burgerOpen = false">&times;</button>
@@ -146,7 +148,6 @@
                         <div class="summary-actions">
                             <button class="summary-icon-btn" @click="editProfile()" title="Bearbeiten">&#9998;</button>
                             <button class="summary-icon-btn" x-show="isTemporary" @click="saveTemporary()" title="Lokal speichern">&#128190;</button>
-                            <button class="summary-icon-btn" @click="window.print()" title="Drucken">&#128424;</button>
                             <button class="summary-icon-btn summary-icon-btn--danger" x-show="!isTemporary" @click="deleteProfile()" title="Profil löschen">&#128465;</button>
                         </div>
                     </div>
@@ -335,38 +336,74 @@
             <!-- ==================== DIÄTZIEL ==================== -->
             <section id="diet-goal" class="section" x-show="gesamtumsatz > 0" x-transition x-cloak>
                 <h2 class="section-title">Dein Diätziel</h2>
-                <p class="section-description">Basierend auf deinem Gesamtumsatz - wähle Tempo und Ziel.</p>
 
-                <div class="tempo-select">
-                    <button class="tempo-btn" :class="{ 'tempo-btn--active': tempo === 500 }" @click="tempo = 500">Moderat (&plusmn;500 kcal)</button>
-                    <button class="tempo-btn" :class="{ 'tempo-btn--active': tempo === 1000 }" @click="tempo = 1000">Normal (&plusmn;1.000 kcal)</button>
-                    <button class="tempo-btn tempo-btn--warn" :class="{ 'tempo-btn--active': tempo === 1500 }" @click="tempo = 1500">Schnell (&plusmn;1.500 kcal) <span class="tempo-warn">nicht empfohlen</span></button>
-                </div>
+                <!-- === Saved view === -->
+                <template x-if="goalSaved">
+                    <div>
+                        <div class="goal-saved-grid">
+                            <div class="goal-saved-item">
+                                <span class="summary-label">Ziel</span>
+                                <span class="summary-val" x-text="goalLabel()"></span>
+                            </div>
+                            <div class="goal-saved-item">
+                                <span class="summary-label">Tempo</span>
+                                <span class="summary-val" x-text="tempoLabel()"></span>
+                            </div>
+                            <div class="goal-saved-item goal-saved-item--highlight">
+                                <span class="summary-label">Tagesziel</span>
+                                <span class="summary-val" x-text="targetCalories.toLocaleString('de-DE') + ' kcal'"></span>
+                            </div>
+                            <div class="goal-saved-item goal-saved-action">
+                                <button class="btn btn-small btn-secondary" @click="goalSaved = false">&#9998; Ändern</button>
+                            </div>
+                        </div>
+                        <div class="diet-prognosis" x-show="activeGoal !== 'maintain'">
+                            <p class="prognosis-info"><strong>Prognose:</strong> Mit &plusmn;<span x-text="tempo.toLocaleString('de-DE')"></span> kcal/Tag veränderst du dein Gewicht um ca. <strong><span x-text="kgPerWeek"></span> kg pro Woche</strong> (ca. <span x-text="kgPerMonth"></span> kg pro Monat).</p>
+                            <p class="prognosis-hint" x-show="tempo >= 1500"><strong>Achtung:</strong> Ein Defizit/Überschuss von 1.500 kcal/Tag ist sehr aggressiv und wird nicht empfohlen.</p>
+                        </div>
+                    </div>
+                </template>
 
-                <div class="goal-cards">
-                    <div class="goal-card" :class="{ 'goal-card--active': activeGoal === 'lose' }" @click="activeGoal = 'lose'">
-                        <h3>Abnehmen</h3>
-                        <p class="goal-calories" x-text="loseCalories.toLocaleString('de-DE')"></p>
-                        <p class="goal-unit">kcal/Tag</p>
-                        <p class="goal-description" x-text="'Kaloriendefizit (-' + tempo.toLocaleString('de-DE') + ' kcal)'"></p>
+                <!-- === Edit view === -->
+                <template x-if="!goalSaved">
+                    <div>
+                        <p class="section-description">Basierend auf deinem Gesamtumsatz - wähle Tempo und Ziel.</p>
+
+                        <div class="tempo-select">
+                            <button class="tempo-btn" :class="{ 'tempo-btn--active': tempo === 500 }" @click="tempo = 500">Moderat (&plusmn;500 kcal)</button>
+                            <button class="tempo-btn" :class="{ 'tempo-btn--active': tempo === 1000 }" @click="tempo = 1000">Normal (&plusmn;1.000 kcal)</button>
+                            <button class="tempo-btn tempo-btn--warn" :class="{ 'tempo-btn--active': tempo === 1500 }" @click="tempo = 1500">Schnell (&plusmn;1.500 kcal) <span class="tempo-warn">nicht empfohlen</span></button>
+                        </div>
+
+                        <div class="goal-cards">
+                            <div class="goal-card" :class="{ 'goal-card--active': activeGoal === 'lose' }" @click="activeGoal = 'lose'">
+                                <h3>Abnehmen</h3>
+                                <p class="goal-calories" x-text="loseCalories.toLocaleString('de-DE')"></p>
+                                <p class="goal-unit">kcal/Tag</p>
+                                <p class="goal-description" x-text="'Kaloriendefizit (-' + tempo.toLocaleString('de-DE') + ' kcal)'"></p>
+                            </div>
+                            <div class="goal-card" :class="{ 'goal-card--active': activeGoal === 'maintain' }" @click="activeGoal = 'maintain'">
+                                <h3>Gewicht halten</h3>
+                                <p class="goal-calories" x-text="maintainCalories.toLocaleString('de-DE')"></p>
+                                <p class="goal-unit">kcal/Tag</p>
+                                <p class="goal-description">Kalorien auf Erhaltungsniveau</p>
+                            </div>
+                            <div class="goal-card" :class="{ 'goal-card--active': activeGoal === 'gain' }" @click="activeGoal = 'gain'">
+                                <h3>Zunehmen</h3>
+                                <p class="goal-calories" x-text="gainCalories.toLocaleString('de-DE')"></p>
+                                <p class="goal-unit">kcal/Tag</p>
+                                <p class="goal-description" x-text="'Kalorienüberschuss (+' + tempo.toLocaleString('de-DE') + ' kcal)'"></p>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-primary btn-small" style="margin-top:var(--spacing-md)" @click="saveDietGoal()">&#128190; Diätziel speichern</button>
+
+                        <div class="diet-prognosis">
+                            <p class="prognosis-info"><strong>Prognose:</strong> Mit &plusmn;<span x-text="tempo.toLocaleString('de-DE')"></span> kcal/Tag veränderst du dein Gewicht um ca. <strong><span x-text="kgPerWeek"></span> kg pro Woche</strong> (ca. <span x-text="kgPerMonth"></span> kg pro Monat).</p>
+                            <p class="prognosis-hint" x-show="tempo >= 1500"><strong>Achtung:</strong> Ein Defizit/Überschuss von 1.500 kcal/Tag ist sehr aggressiv und wird nicht empfohlen.</p>
+                        </div>
                     </div>
-                    <div class="goal-card" :class="{ 'goal-card--active': activeGoal === 'maintain' }" @click="activeGoal = 'maintain'">
-                        <h3>Gewicht halten</h3>
-                        <p class="goal-calories" x-text="maintainCalories.toLocaleString('de-DE')"></p>
-                        <p class="goal-unit">kcal/Tag</p>
-                        <p class="goal-description">Kalorien auf Erhaltungsniveau</p>
-                    </div>
-                    <div class="goal-card" :class="{ 'goal-card--active': activeGoal === 'gain' }" @click="activeGoal = 'gain'">
-                        <h3>Zunehmen</h3>
-                        <p class="goal-calories" x-text="gainCalories.toLocaleString('de-DE')"></p>
-                        <p class="goal-unit">kcal/Tag</p>
-                        <p class="goal-description" x-text="'Kalorienüberschuss (+' + tempo.toLocaleString('de-DE') + ' kcal)'"></p>
-                    </div>
-                </div>
-                <div class="diet-prognosis">
-                    <p class="prognosis-info"><strong>Prognose:</strong> Mit &plusmn;<span x-text="tempo.toLocaleString('de-DE')"></span> kcal/Tag veränderst du dein Gewicht um ca. <strong><span x-text="kgPerWeek"></span> kg pro Woche</strong> (ca. <span x-text="kgPerMonth"></span> kg pro Monat).</p>
-                    <p class="prognosis-hint" x-show="tempo >= 1500"><strong>Achtung:</strong> Ein Defizit/Überschuss von 1.500 kcal/Tag ist sehr aggressiv und wird nicht empfohlen.</p>
-                </div>
+                </template>
             </section>
 
             <!-- ==================== MAKROS ==================== -->
@@ -413,6 +450,23 @@
                     </div>
                 </div>
             </section>
+
+            <!-- Image Preview Overlay -->
+            <div class="overlay" x-show="imageOverlay" x-transition.opacity x-cloak @click.self="closeImageOverlay()">
+                <div class="overlay-content image-overlay-content">
+                    <div class="overlay-header">
+                        <h3>Bild-Vorschau</h3>
+                        <button class="overlay-close" @click="closeImageOverlay()">&times;</button>
+                    </div>
+                    <div class="image-overlay-actions">
+                        <button type="button" class="btn btn-primary btn-small" @click="downloadImage()">&#128229; Download</button>
+                        <button type="button" class="btn btn-secondary btn-small" @click="shareImage()" x-show="canShareFiles">&#128228; Teilen</button>
+                    </div>
+                    <div class="image-overlay-scroll">
+                        <img id="imagePreview" src="" alt="Gesundheitsdaten">
+                    </div>
+                </div>
+            </div>
 
             <!-- Share Overlay -->
             <div class="overlay" x-show="shareOverlay" x-transition.opacity x-cloak @click.self="shareOverlay = false">
@@ -519,7 +573,7 @@
                         <li><a href="https://de.wikipedia.org/wiki/Leistungsumsatz" target="_blank" rel="noopener">Berechnungsgrundlagen</a></li>
                     </ul>
                 </nav>
-                <p class="footer-copyright">&copy; 2026 kcalc - Kalorienbedarf Rechner &middot; v1.2.2 Rev 2026-04-12</p>
+                <p class="footer-copyright">&copy; 2026 kcalc - Kalorienbedarf Rechner &middot; v1.4.0 Rev 2026-04-14</p>
                 <a href="https://github.com/casparjones/kcalc" target="_blank" rel="noopener" class="github-badge" aria-label="GitHub Repository">
                     <svg height="20" viewBox="0 0 16 16" width="20" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
                     <span>GitHub</span>
@@ -532,6 +586,8 @@
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pouchdb@9.0.0/dist/pouchdb.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="js/calc.js"></script>
     <script src="js/chart.js"></script>
     <script src="js/app.js"></script>
