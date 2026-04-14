@@ -371,9 +371,18 @@ document.addEventListener('alpine:init', function () {
                 }
             },
 
+            // ===== Aktuelles Gewicht (neuester Eintrag aus History oder form.gewicht) =====
+            get currentWeight() {
+                if (this.weightHistory && this.weightHistory.length > 0) {
+                    var newest = this.weightHistory.slice().sort(function (a, b) { return b.date.localeCompare(a.date); })[0];
+                    return newest.weight;
+                }
+                return parseFloat(this.form.gewicht) || 0;
+            },
+
             // ===== BMI =====
             get bmi() {
-                return Calc.bmi(parseFloat(this.form.gewicht), parseFloat(this.form.groesse));
+                return Calc.bmi(this.currentWeight, parseFloat(this.form.groesse));
             },
             get bmiInfo() { return Calc.bmiInfo(this.bmi); },
 
@@ -706,7 +715,7 @@ document.addEventListener('alpine:init', function () {
                     var startId = oldestAll.length > 0 ? oldestAll[0].id : null;
 
                     var items = [
-                        { label: 'Gewicht', value: this.form.gewicht ? this.form.gewicht + ' kg' : '\u2013' },
+                        { label: 'Gewicht', value: this.currentWeight ? this.currentWeight.toFixed(1) + ' kg' : '\u2013' },
                         { label: 'Gr\u00f6\u00dfe', value: this.form.groesse ? this.form.groesse + ' cm' : '\u2013' },
                         { label: 'Alter', value: this.form.alter ? this.form.alter + ' Jahre' : '\u2013' },
                         { label: 'BMI', value: this.bmi ? this.bmi.toFixed(1) : '\u2013' },
@@ -1078,7 +1087,7 @@ document.addEventListener('alpine:init', function () {
                     var bmiIcon = self.bmiInfo ? ' ' + self.bmiInfo.icon : '';
 
                     var cells = [
-                        { label: 'Gewicht', value: (self.form.gewicht || '-') + ' kg' },
+                        { label: 'Gewicht', value: self.currentWeight ? self.currentWeight.toFixed(1) + ' kg' : '-' },
                         { label: 'Größe', value: (self.form.groesse || '-') + ' cm' },
                         { label: 'Alter', value: (self.form.alter || '-') + ' J.' },
                         { label: 'Geschlecht', value: geschlechtLabel },
