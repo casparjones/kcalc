@@ -291,10 +291,9 @@ document.addEventListener('alpine:init', function () {
                 this.syncUrl = getSyncUrl();
                 if (this.syncUrl) this.startCouchSync();
 
-                // Google Drive: auto-upload on startup if token is present
-                // (syncUp statt syncDown, damit lokale Daten nicht überschrieben werden)
+                // Google Drive: intelligenter Sync beim Start (vergleicht Zeitstempel)
                 if (this.gdriveToken && this.isChrome) {
-                    this.gdriveSyncUp();
+                    this.gdriveAutoSync();
                 }
 
                 // Resize chart
@@ -1555,7 +1554,10 @@ document.addEventListener('alpine:init', function () {
                     if (!res.ok) throw new Error('Drive API Fehler: ' + res.status);
                     return res.json();
                 }).then(function (data) {
-                    return (data.files && data.files.length > 0) ? data.files[0].id : null;
+                    if (data.files && data.files.length > 0) {
+                        return { id: data.files[0].id, modifiedTime: data.files[0].modifiedTime };
+                    }
+                    return null;
                 });
             },
 
@@ -1677,6 +1679,77 @@ document.addEventListener('alpine:init', function () {
                 });
             },
 
+            // Neuesten lokalen Zeitstempel ermitteln (savedAt der Profile)
+            gdriveLocalTimestamp: function () {
+                var latest = '';
+                var names = Object.keys(this.profiles);
+                for (var i = 0; i < names.length; i++) {
+                    var p = this.profiles[names[i]];
+                    if (p && p.profile && p.profile.savedAt && p.profile.savedAt > latest) {
+                        latest = p.profile.savedAt;
+                    }
+                }
+                return latest;
+            },
+
+            // Intelligenter Sync: vergleicht lokale und remote Zeitstempel
+            gdriveAutoSync: function () {
+                var self = this;
+                if (!this.gdriveToken) return;
+                this.gdriveSyncing = true;
+
+                this.gdriveEnsureToken().then(function (token) {
+                    return self.gdriveFindFile(token).then(function (file) {
+                        if (!file) {
+                            // Keine Daten in Drive → hochladen
+                            console.log('[GDrive Sync] Keine Remote-Datei, starte Upload');
+                            return self.gdriveExportData().then(function (data) {
+                                return self.gdriveUploadFile(token, null, data);
+                            }).then(function () { return 'up'; });
+                        }
+
+                        var remoteTime = new Date(file.modifiedTime).getTime();
+                        var localTime = new Date(self.gdriveLocalTimestamp() || 0).getTime();
+
+                        console.log('[GDrive Sync] Remote:', new Date(remoteTime).toISOString(), '| Lokal:', new Date(localTime).toISOString());
+
+                        if (localTime >= remoteTime) {
+                            // Lokal ist neuer oder gleich → hochladen
+                            console.log('[GDrive Sync] Lokal neuer → Upload');
+                            return self.gdriveExportData().then(function (data) {
+                                return self.gdriveUploadFile(token, file.id, data);
+                            }).then(function () { return 'up'; });
+                        } else {
+                            // Remote ist neuer → herunterladen
+                            console.log('[GDrive Sync] Remote neuer → Download');
+                            return self.gdriveDownloadFile(token, file.id).then(function (data) {
+                                if (data && data.version && data.profiles) {
+                                    self.executeImport(data);
+                                    return 'down';
+                                }
+                                return 'skip';
+                            });
+                        }
+                    });
+                }).then(function (direction) {
+                    var now = new Date().toISOString();
+                    self.gdriveLastSync = now;
+                    localStorage.setItem('kcalc_gdrive_last_sync', now);
+                    if (direction === 'up') {
+                        self.toast('Google Drive aktualisiert', 'success');
+                    } else if (direction === 'down') {
+                        self.toast('Neuere Daten von Google Drive geladen', 'success');
+                    }
+                }).catch(function (err) {
+                    if (err.message !== 'TOKEN_EXPIRED') {
+                        console.error('Google Drive sync error:', err);
+                        self.toast('Sync-Fehler: ' + err.message, 'error');
+                    }
+                }).finally(function () {
+                    self.gdriveSyncing = false;
+                });
+            },
+
             gdriveSyncUp: function () {
                 var self = this;
                 if (!this.gdriveToken) { this.toast('Nicht mit Google verbunden', 'warn'); return; }
@@ -1684,8 +1757,8 @@ document.addEventListener('alpine:init', function () {
 
                 this.gdriveEnsureToken().then(function (token) {
                     return self.gdriveExportData().then(function (data) {
-                        return self.gdriveFindFile(token).then(function (fileId) {
-                            return self.gdriveUploadFile(token, fileId, data);
+                        return self.gdriveFindFile(token).then(function (file) {
+                            return self.gdriveUploadFile(token, file ? file.id : null, data);
                         });
                     });
                 }).then(function () {
@@ -1709,12 +1782,12 @@ document.addEventListener('alpine:init', function () {
                 this.gdriveSyncing = true;
 
                 this.gdriveEnsureToken().then(function (token) {
-                    return self.gdriveFindFile(token).then(function (fileId) {
-                        if (!fileId) {
+                    return self.gdriveFindFile(token).then(function (file) {
+                        if (!file) {
                             self.toast('Keine Daten in Google Drive gefunden', 'info');
                             return null;
                         }
-                        return self.gdriveDownloadFile(token, fileId);
+                        return self.gdriveDownloadFile(token, file.id);
                     });
                 }).then(function (data) {
                     if (!data) return;
