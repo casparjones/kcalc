@@ -513,7 +513,20 @@ document.addEventListener('alpine:init', function () {
             },
 
             drawChart: function () {
-                this.$nextTick(function () { WeightChart.draw('weightChart', this.weightHistory); }.bind(this));
+                var self = this;
+                // Double $nextTick: first tick for Alpine to evaluate x-show,
+                // second tick for the browser to layout the now-visible element
+                this.$nextTick(function () {
+                    self.$nextTick(function () {
+                        var canvas = document.getElementById('weightChart');
+                        if (canvas && canvas.parentElement && canvas.parentElement.getBoundingClientRect().width > 0) {
+                            WeightChart.draw('weightChart', self.weightHistory);
+                        } else {
+                            // Fallback: retry after layout
+                            setTimeout(function () { WeightChart.draw('weightChart', self.weightHistory); }, 100);
+                        }
+                    });
+                });
             },
 
             // ===== Profile Storage =====
