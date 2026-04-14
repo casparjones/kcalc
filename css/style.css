@@ -1125,7 +1125,9 @@ h3 { font-size: var(--font-size-xl); }
 }
 
 .form-save-container .btn {
-    min-width: 160px;
+    min-width: auto;
+    padding: var(--spacing-xs) var(--spacing-lg);
+    font-size: var(--font-size-sm);
 }
 
 .weight-transfer {
