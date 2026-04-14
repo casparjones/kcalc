@@ -291,9 +291,10 @@ document.addEventListener('alpine:init', function () {
                 this.syncUrl = getSyncUrl();
                 if (this.syncUrl) this.startCouchSync();
 
-                // Google Drive: auto-load on startup if token is present
+                // Google Drive: auto-upload on startup if token is present
+                // (syncUp statt syncDown, damit lokale Daten nicht überschrieben werden)
                 if (this.gdriveToken && this.isChrome) {
-                    this.gdriveSyncDown();
+                    this.gdriveSyncUp();
                 }
 
                 // Resize chart
@@ -412,7 +413,9 @@ document.addEventListener('alpine:init', function () {
                 if (profileData && profileData.profile) {
                     profileData.profile.tempo = this.tempo;
                     profileData.profile.activeGoal = this.activeGoal;
-                    saveProfileToDB(this.activeProfile, profileData.profile);
+                    saveProfileToDB(this.activeProfile, profileData.profile).then(function () {
+                        if (self.gdriveToken) self.gdriveSyncUp();
+                    });
                     this.toast('Diätziel gespeichert', 'success');
                 }
             },
