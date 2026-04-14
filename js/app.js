@@ -1099,7 +1099,10 @@ document.addEventListener('alpine:init', function () {
                     var y = 36;
                     var geschlechtLabel = self.form.geschlecht === 'm' ? 'M' : 'W';
                     var bmiVal = self.bmi ? self.bmi.toFixed(1) : '-';
-                    var bmiIcon = self.bmiInfo ? ' ' + self.bmiInfo.icon : '';
+                    var bmiLabel = '';
+                    if (self.bmiInfo && self.bmiInfo.cls) {
+                        bmiLabel = self.bmiInfo.cls === 'bmi-low' ? ' (Untergewicht)' : self.bmiInfo.cls === 'bmi-ok' ? ' (Normal)' : ' (Übergewicht)';
+                    }
 
                     var cells = [
                         { label: 'Gewicht', value: self.currentWeight ? self.currentWeight.toFixed(1) + ' kg' : '-' },
@@ -1110,7 +1113,7 @@ document.addEventListener('alpine:init', function () {
                         { label: 'Broca', value: self.form.anpassung === 'j' ? 'Ja' : 'Nein' },
                         { label: 'PAL', value: self.palValue || '-' },
                         { label: 'Erstellt', value: self.fmtDate(self.form.savedAt) },
-                        { label: 'BMI', value: bmiVal + bmiIcon, highlight: false },
+                        { label: 'BMI', value: bmiVal + bmiLabel, highlight: false },
                         { label: 'Grundumsatz', value: (self.grundumsatz || '-') + ' kcal', highlight: true },
                         { label: 'Leistungsumsatz', value: (self.leistungsumsatz || '-') + ' kcal', highlight: true },
                         { label: 'Gesamtumsatz', value: (self.gesamtumsatz || '-') + ' kcal', highlight: true }
