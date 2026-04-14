@@ -237,7 +237,12 @@
                             <tr>
                                 <td><label>Gewicht</label></td>
                                 <td><input type="number" x-model="form.gewicht" @input="recalculate()" min="1" max="400" step="0.1" placeholder="z.B. 75"></td>
-                                <td>kg</td><td></td>
+                                <td>kg</td>
+                                <td class="info-cell">
+                                    <template x-if="weightHistory.length > 0 && currentWeight != parseFloat(form.gewicht)">
+                                        <span class="weight-transfer">Aktuell: <strong x-text="currentWeight.toFixed(1) + ' kg'"></strong> <button class="btn-inline" @click="form.gewicht = currentWeight; recalculate();" title="Aktuelles Gewicht übernehmen">&#8592; übertragen</button></span>
+                                    </template>
+                                </td>
                             </tr>
                             <tr>
                                 <td><label>Größe</label></td>
@@ -330,6 +335,7 @@
 
                 <div class="form-save-container" x-show="gesamtumsatz > 0">
                     <button type="button" class="btn btn-primary" @click="saveProfile()">Speichern (lokal)</button>
+                    <button type="button" class="btn btn-secondary" x-show="hasProfiles" @click="activateProfile(activeProfile)">Abbrechen</button>
                 </div>
             </section>
 
