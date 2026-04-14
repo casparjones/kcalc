@@ -1524,10 +1524,14 @@ h3 { font-size: var(--font-size-xl); }
 .bmi-arrow { font-size: 14px; }
 .bmi-low { color: var(--color-accent); }
 .bmi-ok { color: var(--color-primary-dark); font-weight: bold; font-size: 16px; }
-.bmi-high { color: var(--color-accent); }
+.bmi-overweight { color: #e67e22; }
+.bmi-obese1 { color: #e74c3c; }
+.bmi-obese2 { color: #c0392b; }
 .summary-item.bmi-low { background: var(--color-accent-light); }
 .summary-item.bmi-ok { background: var(--color-primary-bg); }
-.summary-item.bmi-high { background: var(--color-accent-light); }
+.summary-item.bmi-overweight { background: #fef3e8; }
+.summary-item.bmi-obese1 { background: #fde8e8; }
+.summary-item.bmi-obese2 { background: #f9d6d6; }
 
 /* Summary compact overrides */
 .summary-grid-compact .summary-item {

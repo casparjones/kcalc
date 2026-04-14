@@ -1099,10 +1099,7 @@ document.addEventListener('alpine:init', function () {
                     var y = 36;
                     var geschlechtLabel = self.form.geschlecht === 'm' ? 'M' : 'W';
                     var bmiVal = self.bmi ? self.bmi.toFixed(1) : '-';
-                    var bmiLabel = '';
-                    if (self.bmiInfo && self.bmiInfo.cls) {
-                        bmiLabel = self.bmiInfo.cls === 'bmi-low' ? ' (Untergewicht)' : self.bmiInfo.cls === 'bmi-ok' ? ' (Normal)' : ' (Übergewicht)';
-                    }
+                    var bmiLabel = self.bmiInfo && self.bmiInfo.label ? ' (' + self.bmiInfo.label + ')' : '';
 
                     var cells = [
                         { label: 'Gewicht', value: self.currentWeight ? self.currentWeight.toFixed(1) + ' kg' : '-' },

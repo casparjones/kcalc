@@ -35,11 +35,13 @@ var Calc = {
     },
 
     bmiInfo: function (bmi) {
-        if (bmi === null) return { text: '-', icon: '', cls: '' };
+        if (bmi === null) return { text: '-', icon: '', cls: '', label: '' };
         var v = bmi.toFixed(1);
-        if (bmi < 18.5) return { text: v, icon: '\u25B2', cls: 'bmi-low' };
-        if (bmi < 25) return { text: v, icon: '\u2713', cls: 'bmi-ok' };
-        return { text: v, icon: '\u25BC', cls: 'bmi-high' };
+        if (bmi < 18.5) return { text: v, icon: '\u25B2', cls: 'bmi-low', label: 'Untergewicht' };
+        if (bmi < 25) return { text: v, icon: '\u2713', cls: 'bmi-ok', label: 'Normal' };
+        if (bmi < 30) return { text: v, icon: '\u25BC', cls: 'bmi-overweight', label: '\u00dcbergewicht' };
+        if (bmi < 35) return { text: v, icon: '\u25BC', cls: 'bmi-obese1', label: 'Adipositas I' };
+        return { text: v, icon: '\u25BC', cls: 'bmi-obese2', label: 'Adipositas II' };
     },
 
     parseZeit: function (zeit) {
