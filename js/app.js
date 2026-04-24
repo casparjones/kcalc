@@ -1,5 +1,5 @@
 // Alpine.js App - Reactive state & UI logic
-// Storage: PouchDB (IndexedDB) with localStorage migration
+// Storage: RxDB (IndexedDB/Dexie) with localStorage + PouchDB migration
 'use strict';
 
 document.addEventListener('alpine:init', function () {
@@ -8,11 +8,13 @@ document.addEventListener('alpine:init', function () {
         var STORAGE_KEY = 'diaethelfer_profiles';
         var ACTIVE_KEY = 'diaethelfer_active';
         var MIGRATED_KEY = 'diaethelfer_pouchdb_migrated';
+        var RXDB_MIGRATED_KEY = 'kcalc_rxdb_migrated';
         var macroColors = { protein: '#e74c3c', carbs: '#f39c12', fat: '#3498db' };
 
-        var db = new PouchDB('kcalc');
+        var rxdb = null; // set after window.__rxdbReady resolves
         var SYNC_KEY = 'kcalc_couchdb_url';
-        var syncHandler = null;
+        var replicationStates = [];
+        var replicationSubs = [];
 
         // ===== CouchDB Sync Functions =====
         function getSyncUrl() {
@@ -25,49 +27,58 @@ document.addEventListener('alpine:init', function () {
         }
 
         function startSync(url, callbacks) {
-            if (syncHandler) { syncHandler.cancel(); syncHandler = null; }
-            if (!url) return null;
-            var remoteDB = new PouchDB(url);
-            var handler = db.sync(remoteDB, { live: true, retry: true });
-            handler.on('change', function (info) { if (callbacks.onChange) callbacks.onChange(info); });
-            handler.on('paused', function (err) { if (callbacks.onPaused) callbacks.onPaused(err); });
-            handler.on('active', function () { if (callbacks.onActive) callbacks.onActive(); });
-            handler.on('denied', function (err) { if (callbacks.onError) callbacks.onError(err); });
-            handler.on('error', function (err) { if (callbacks.onError) callbacks.onError(err); });
-            handler.on('complete', function (info) { if (callbacks.onComplete) callbacks.onComplete(info); });
-            syncHandler = handler;
-            return handler;
+            stopSync();
+            if (!url || !window.__replicateCouchDB) return;
+
+            // Append collection-specific suffix to the base CouchDB URL
+            var base = url.replace(/\/$/, '');
+            var collDefs = [
+                { coll: rxdb.profiles, suffix: '_profiles' },
+                { coll: rxdb.entries,  suffix: '_entries' },
+                { coll: rxdb.meta,     suffix: '_meta' }
+            ];
+
+            replicationStates = collDefs.map(function (c, i) {
+                var state = window.__replicateCouchDB({
+                    replicationIdentifier: 'kcalc-couch' + c.suffix,
+                    collection: c.coll,
+                    url: base + c.suffix + '/',
+                    live: true,
+                    pull: { batchSize: 60, heartbeat: 60000 },
+                    push: { batchSize: 60 }
+                });
+
+                // Wire status callbacks through the first collection only
+                if (i === 0) {
+                    replicationSubs.push(state.active$.subscribe(function (active) {
+                        if (active) { if (callbacks.onActive) callbacks.onActive(); }
+                        else        { if (callbacks.onPaused) callbacks.onPaused(null); }
+                    }));
+                    replicationSubs.push(state.error$.subscribe(function (err) {
+                        if (err && callbacks.onError) callbacks.onError(err);
+                    }));
+                    replicationSubs.push(state.canceled$.subscribe(function () {
+                        if (callbacks.onComplete) callbacks.onComplete({});
+                    }));
+                }
+
+                // Reload UI when remote documents arrive
+                replicationSubs.push(state.received$.subscribe(function () {
+                    if (i === 0 && callbacks.onChange) callbacks.onChange({ direction: 'pull', change: { docs: [1] } });
+                }));
+
+                return state;
+            });
         }
 
         function stopSync() {
-            if (syncHandler) { syncHandler.cancel(); syncHandler = null; }
+            replicationSubs.forEach(function (s) { try { s.unsubscribe(); } catch (e) {} });
+            replicationSubs = [];
+            replicationStates.forEach(function (s) { try { s.cancel(); } catch (e) {} });
+            replicationStates = [];
         }
 
-        // ===== PouchDB Helper Functions =====
-        function dbGet(id) {
-            return db.get(id).catch(function () { return null; });
-        }
-
-        function dbPut(doc) {
-            return db.get(doc._id).then(function (existing) {
-                doc._rev = existing._rev;
-                return db.put(doc);
-            }).catch(function () {
-                return db.put(doc);
-            });
-        }
-
-        function dbRemove(id) {
-            return db.get(id).then(function (doc) {
-                return db.remove(doc);
-            }).catch(function () { /* not found */ });
-        }
-
-        function dbRange(startkey, endkey) {
-            return db.allDocs({ include_docs: true, startkey: startkey, endkey: endkey }).then(function (result) {
-                return result.rows.map(function (row) { return row.doc; });
-            });
-        }
+        // ===== RxDB Helper Functions =====
 
         function migrateFromLocalStorage() {
             if (localStorage.getItem(MIGRATED_KEY)) return Promise.resolve(false);
@@ -81,17 +92,16 @@ document.addEventListener('alpine:init', function () {
             var names = Object.keys(allProfiles);
             if (names.length === 0) { localStorage.setItem(MIGRATED_KEY, '1'); return Promise.resolve(false); }
 
-            var docs = [];
+            var profileDocs = [], entryDocs = [];
             for (var i = 0; i < names.length; i++) {
                 var name = names[i];
                 var data = allProfiles[name];
-                docs.push({ _id: 'profile_' + name, type: 'profile', name: name, profile: data.profile || {} });
+                profileDocs.push({ id: name, name: name, profileJson: JSON.stringify(data.profile || {}) });
 
                 var wh = data.weightHistory || [];
                 for (var j = 0; j < wh.length; j++) {
-                    docs.push({
-                        _id: 'entry_' + name + '_' + wh[j].date,
-                        type: 'entry',
+                    entryDocs.push({
+                        id: name + '_' + wh[j].date,
                         profileName: name,
                         date: wh[j].date,
                         weight: wh[j].weight,
@@ -101,37 +111,87 @@ document.addEventListener('alpine:init', function () {
             }
 
             var active = localStorage.getItem(ACTIVE_KEY) || '';
-            if (active) docs.push({ _id: 'meta_active', type: 'meta', value: active });
+            var promises = [];
+            if (profileDocs.length > 0) promises.push(rxdb.profiles.bulkUpsert(profileDocs));
+            if (entryDocs.length > 0)   promises.push(rxdb.entries.bulkUpsert(entryDocs));
+            if (active)                  promises.push(rxdb.meta.upsert({ key: 'active', value: active }));
 
-            return db.bulkDocs(docs).then(function () {
+            return Promise.all(promises).then(function () {
                 localStorage.setItem(MIGRATED_KEY, '1');
                 return true;
-            }).catch(function (err) {
-                // If some docs already exist (409), mark as migrated anyway
+            }).catch(function () {
                 localStorage.setItem(MIGRATED_KEY, '1');
                 return true;
             });
         }
 
+        function migrateFromPouchDB() {
+            if (localStorage.getItem(RXDB_MIGRATED_KEY)) return Promise.resolve(false);
+            if (typeof PouchDB === 'undefined') {
+                localStorage.setItem(RXDB_MIGRATED_KEY, '1');
+                return Promise.resolve(false);
+            }
+
+            var oldDb = new PouchDB('kcalc');
+            return oldDb.allDocs({ include_docs: true }).then(function (result) {
+                var docs = result.rows.map(function (r) { return r.doc; });
+                if (docs.length === 0) {
+                    localStorage.setItem(RXDB_MIGRATED_KEY, '1');
+                    return false;
+                }
+
+                var profileDocs = [], entryDocs = [], metaDocs = [];
+                for (var i = 0; i < docs.length; i++) {
+                    var doc = docs[i];
+                    if (doc.type === 'profile') {
+                        profileDocs.push({ id: doc.name, name: doc.name, profileJson: JSON.stringify(doc.profile || {}) });
+                    } else if (doc.type === 'entry') {
+                        entryDocs.push({
+                            id: doc.profileName + '_' + doc.date,
+                            profileName: doc.profileName,
+                            date: doc.date,
+                            weight: doc.weight,
+                            entryId: doc.entryId || Date.now()
+                        });
+                    } else if (doc.type === 'meta' && doc._id === 'meta_active') {
+                        metaDocs.push({ key: 'active', value: doc.value || '' });
+                    }
+                }
+
+                var promises = [];
+                if (profileDocs.length > 0) promises.push(rxdb.profiles.bulkUpsert(profileDocs));
+                if (entryDocs.length > 0)   promises.push(rxdb.entries.bulkUpsert(entryDocs));
+                if (metaDocs.length > 0)    promises.push(rxdb.meta.bulkUpsert(metaDocs));
+
+                return Promise.all(promises).then(function () {
+                    localStorage.setItem(RXDB_MIGRATED_KEY, '1');
+                    return true;
+                });
+            }).catch(function () {
+                localStorage.setItem(RXDB_MIGRATED_KEY, '1');
+                return false;
+            });
+        }
+
         function loadAllProfilesFromDB() {
-            return dbRange('profile_', 'profile_\uffff').then(function (profileDocs) {
+            return rxdb.profiles.find().exec().then(function (profileDocs) {
                 var profiles = {};
                 var names = [];
                 for (var i = 0; i < profileDocs.length; i++) {
-                    var doc = profileDocs[i];
-                    profiles[doc.name] = { profile: doc.profile || {} };
+                    var doc = profileDocs[i].toJSON();
+                    var profile = {};
+                    try { profile = JSON.parse(doc.profileJson || '{}'); } catch (e) {}
+                    profiles[doc.name] = { profile: profile };
                     names.push(doc.name);
                 }
-                // Load weight entries for all profiles
-                return dbRange('entry_', 'entry_\uffff').then(function (entryDocs) {
+                return rxdb.entries.find().exec().then(function (entryDocs) {
                     for (var j = 0; j < entryDocs.length; j++) {
-                        var e = entryDocs[j];
+                        var e = entryDocs[j].toJSON();
                         if (profiles[e.profileName]) {
                             if (!profiles[e.profileName].weightHistory) profiles[e.profileName].weightHistory = [];
                             profiles[e.profileName].weightHistory.push({ date: e.date, weight: e.weight, id: e.entryId || Date.now() + j });
                         }
                     }
-                    // Sort weight histories
                     for (var k = 0; k < names.length; k++) {
                         var wh = profiles[names[k]].weightHistory || [];
                         wh.sort(function (a, b) { return a.date.localeCompare(b.date); });
@@ -143,73 +203,101 @@ document.addEventListener('alpine:init', function () {
         }
 
         function getActiveProfileFromDB() {
-            return dbGet('meta_active').then(function (doc) {
-                return doc ? doc.value || '' : '';
+            return rxdb.meta.findOne('active').exec().then(function (doc) {
+                return doc ? doc.toJSON().value || '' : '';
             });
         }
 
         function setActiveProfileInDB(name) {
-            return dbPut({ _id: 'meta_active', type: 'meta', value: name });
+            return rxdb.meta.upsert({ key: 'active', value: name || '' });
         }
 
         function saveProfileToDB(name, profileData) {
-            return dbPut({ _id: 'profile_' + name, type: 'profile', name: name, profile: profileData });
+            return rxdb.profiles.upsert({ id: name, name: name, profileJson: JSON.stringify(profileData) });
         }
 
         function persistWeightHistoryToDB(profileName, weightHistory) {
-            var prefix = 'entry_' + profileName + '_';
-            return dbRange(prefix, prefix + '\uffff').then(function (existingDocs) {
-                var existingByDate = {};
-                for (var i = 0; i < existingDocs.length; i++) {
-                    existingByDate[existingDocs[i].date] = existingDocs[i];
-                }
+            return rxdb.entries.find({ selector: { profileName: profileName } }).exec()
+                .then(function (existingDocs) {
+                    var existingByDate = {};
+                    var rxDocByDate = {};
+                    for (var i = 0; i < existingDocs.length; i++) {
+                        var e = existingDocs[i].toJSON();
+                        existingByDate[e.date] = e;
+                        rxDocByDate[e.date] = existingDocs[i];
+                    }
 
-                var ops = [];
-                var currentDates = {};
+                    var toUpsert = [];
+                    var currentDates = {};
 
-                for (var j = 0; j < weightHistory.length; j++) {
-                    var entry = weightHistory[j];
-                    currentDates[entry.date] = true;
-                    var docId = 'entry_' + profileName + '_' + entry.date;
-
-                    if (existingByDate[entry.date]) {
-                        var ex = existingByDate[entry.date];
-                        if (ex.weight !== entry.weight || ex.entryId !== entry.id) {
-                            ex.weight = entry.weight;
-                            ex.entryId = entry.id;
-                            ops.push(ex);
+                    for (var j = 0; j < weightHistory.length; j++) {
+                        var entry = weightHistory[j];
+                        currentDates[entry.date] = true;
+                        var existing = existingByDate[entry.date];
+                        if (!existing || existing.weight !== entry.weight || existing.entryId !== entry.id) {
+                            toUpsert.push({
+                                id: profileName + '_' + entry.date,
+                                profileName: profileName,
+                                date: entry.date,
+                                weight: entry.weight,
+                                entryId: entry.id || Date.now()
+                            });
                         }
-                    } else {
-                        ops.push({
-                            _id: docId, type: 'entry', profileName: profileName,
-                            date: entry.date, weight: entry.weight, entryId: entry.id
-                        });
                     }
-                }
 
-                // Delete removed entries
-                var existingKeys = Object.keys(existingByDate);
-                for (var k = 0; k < existingKeys.length; k++) {
-                    if (!currentDates[existingKeys[k]]) {
-                        var toDelete = existingByDate[existingKeys[k]];
-                        toDelete._deleted = true;
-                        ops.push(toDelete);
+                    var ops = [];
+                    var existingDates = Object.keys(existingByDate);
+                    for (var k = 0; k < existingDates.length; k++) {
+                        if (!currentDates[existingDates[k]]) {
+                            ops.push(rxDocByDate[existingDates[k]].remove());
+                        }
                     }
-                }
-
-                if (ops.length > 0) return db.bulkDocs(ops);
-            });
+                    if (toUpsert.length > 0) ops.push(rxdb.entries.bulkUpsert(toUpsert));
+                    if (ops.length > 0) return Promise.all(ops);
+                });
         }
 
         function deleteProfileFromDB(name) {
-            var prefix = 'entry_' + name + '_';
             return Promise.all([
-                dbRemove('profile_' + name),
-                dbRange(prefix, prefix + '\uffff').then(function (docs) {
-                    var toDelete = docs.map(function (d) { return { _id: d._id, _rev: d._rev, _deleted: true }; });
-                    if (toDelete.length > 0) return db.bulkDocs(toDelete);
+                rxdb.profiles.findOne(name).exec().then(function (doc) { return doc ? doc.remove() : null; }),
+                rxdb.entries.find({ selector: { profileName: name } }).exec().then(function (docs) {
+                    return Promise.all(docs.map(function (d) { return d.remove(); }));
                 })
             ]);
+        }
+
+        // Shared helper to build an exportable data object from RxDB
+        function buildExportData() {
+            return Promise.all([
+                rxdb.profiles.find().exec(),
+                rxdb.entries.find().exec()
+            ]).then(function (results) {
+                var profileDocs = results[0].map(function (d) { return d.toJSON(); });
+                var entryDocs   = results[1].map(function (d) { return d.toJSON(); });
+
+                var profiles = {};
+                for (var i = 0; i < profileDocs.length; i++) {
+                    var doc = profileDocs[i];
+                    var profile = {};
+                    try { profile = JSON.parse(doc.profileJson || '{}'); } catch (e) {}
+                    profiles[doc.name] = { profile: profile };
+                }
+                var entries = [];
+                for (var j = 0; j < entryDocs.length; j++) {
+                    var e = entryDocs[j];
+                    entries.push({ profileName: e.profileName, date: e.date, weight: e.weight, entryId: e.entryId });
+                    if (profiles[e.profileName]) {
+                        if (!profiles[e.profileName].weightHistory) profiles[e.profileName].weightHistory = [];
+                        profiles[e.profileName].weightHistory.push({ date: e.date, weight: e.weight, id: e.entryId });
+                    }
+                }
+                return {
+                    version: 1,
+                    exportedAt: new Date().toISOString(),
+                    profiles: profiles,
+                    entries: entries
+                };
+            });
         }
 
         return {
@@ -265,8 +353,13 @@ document.addEventListener('alpine:init', function () {
                 var self = this;
                 this.newDate = this.todayStr();
 
-                // Migrate localStorage data, then load from PouchDB
-                migrateFromLocalStorage().then(function () {
+                // Wait for RxDB, migrate legacy data, then load profiles
+                window.__rxdbReady.then(function (database) {
+                    rxdb = database;
+                    return migrateFromPouchDB();
+                }).then(function () {
+                    return migrateFromLocalStorage();
+                }).then(function () {
                     return Promise.all([loadAllProfilesFromDB(), getActiveProfileFromDB()]);
                 }).then(function (results) {
                     self.profiles = results[0];
@@ -282,19 +375,19 @@ document.addEventListener('alpine:init', function () {
                         if (names.length > 0) self.activateProfile(names[0]);
                         else self.view = 'form';
                     }
+
+                    // Start CouchDB sync if URL is configured (needs rxdb to be ready)
+                    self.syncUrl = getSyncUrl();
+                    if (self.syncUrl) self.startCouchSync();
+
+                    // Google Drive: intelligenter Sync beim Start (vergleicht Zeitstempel)
+                    if (self.gdriveToken && self.isChrome) {
+                        self.gdriveAutoSync();
+                    }
                 }).catch(function (err) {
-                    console.error('PouchDB init error:', err);
+                    console.error('RxDB init error:', err);
                     self.view = 'form';
                 });
-
-                // Start CouchDB sync if URL is configured
-                this.syncUrl = getSyncUrl();
-                if (this.syncUrl) this.startCouchSync();
-
-                // Google Drive: intelligenter Sync beim Start (vergleicht Zeitstempel)
-                if (this.gdriveToken && this.isChrome) {
-                    this.gdriveAutoSync();
-                }
 
                 // Resize chart
                 var timer;
@@ -1248,37 +1341,7 @@ document.addEventListener('alpine:init', function () {
             exportData: function () {
                 this.dropdownOpen = false;
                 var self = this;
-                Promise.all([
-                    dbRange('profile_', 'profile_\uffff'),
-                    dbRange('entry_', 'entry_\uffff')
-                ]).then(function (results) {
-                    var profileDocs = results[0];
-                    var entryDocs = results[1];
-                    var profiles = {};
-                    for (var i = 0; i < profileDocs.length; i++) {
-                        var doc = profileDocs[i];
-                        profiles[doc.name] = { profile: doc.profile || {} };
-                    }
-                    var entries = [];
-                    for (var j = 0; j < entryDocs.length; j++) {
-                        var e = entryDocs[j];
-                        entries.push({
-                            profileName: e.profileName,
-                            date: e.date,
-                            weight: e.weight,
-                            entryId: e.entryId
-                        });
-                        if (profiles[e.profileName]) {
-                            if (!profiles[e.profileName].weightHistory) profiles[e.profileName].weightHistory = [];
-                            profiles[e.profileName].weightHistory.push({ date: e.date, weight: e.weight, id: e.entryId });
-                        }
-                    }
-                    var backup = {
-                        version: 1,
-                        exportedAt: new Date().toISOString(),
-                        profiles: profiles,
-                        entries: entries
-                    };
+                buildExportData().then(function (backup) {
                     var blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
                     var url = URL.createObjectURL(blob);
                     var a = document.createElement('a');
@@ -1342,27 +1405,17 @@ document.addEventListener('alpine:init', function () {
             executeImport: function (data) {
                 var self = this;
                 var profileNames = Object.keys(data.profiles);
-                var docs = [];
 
-                // Build profile documents
-                for (var i = 0; i < profileNames.length; i++) {
-                    var name = profileNames[i];
-                    var pData = data.profiles[name];
-                    docs.push({
-                        _id: 'profile_' + name,
-                        type: 'profile',
-                        name: name,
-                        profile: pData.profile || {}
-                    });
-                }
+                var profileDocs = profileNames.map(function (name) {
+                    return { id: name, name: name, profileJson: JSON.stringify(data.profiles[name].profile || {}) };
+                });
 
-                // Build entry documents from the entries array (preferred) or from profiles' weightHistory
+                var entryDocs = [];
                 if (data.entries && data.entries.length > 0) {
                     for (var j = 0; j < data.entries.length; j++) {
                         var entry = data.entries[j];
-                        docs.push({
-                            _id: 'entry_' + entry.profileName + '_' + entry.date,
-                            type: 'entry',
+                        entryDocs.push({
+                            id: entry.profileName + '_' + entry.date,
                             profileName: entry.profileName,
                             date: entry.date,
                             weight: entry.weight,
@@ -1370,14 +1423,12 @@ document.addEventListener('alpine:init', function () {
                         });
                     }
                 } else {
-                    // Fallback: build entries from profiles' weightHistory
                     for (var k = 0; k < profileNames.length; k++) {
                         var pName = profileNames[k];
                         var wh = data.profiles[pName].weightHistory || [];
                         for (var l = 0; l < wh.length; l++) {
-                            docs.push({
-                                _id: 'entry_' + pName + '_' + wh[l].date,
-                                type: 'entry',
+                            entryDocs.push({
+                                id: pName + '_' + wh[l].date,
                                 profileName: pName,
                                 date: wh[l].date,
                                 weight: wh[l].weight,
@@ -1387,10 +1438,11 @@ document.addEventListener('alpine:init', function () {
                     }
                 }
 
-                // Use dbPut for each doc so _rev conflicts are handled
-                var putPromises = docs.map(function (doc) { return dbPut(doc); });
-                Promise.all(putPromises).then(function () {
-                    // Reload all data from PouchDB
+                var promises = [];
+                if (profileDocs.length > 0) promises.push(rxdb.profiles.bulkUpsert(profileDocs));
+                if (entryDocs.length > 0)   promises.push(rxdb.entries.bulkUpsert(entryDocs));
+
+                Promise.all(promises).then(function () {
                     return Promise.all([loadAllProfilesFromDB(), getActiveProfileFromDB()]);
                 }).then(function (results) {
                     self.profiles = results[0];
@@ -1426,7 +1478,6 @@ document.addEventListener('alpine:init', function () {
                 startSync(url, {
                     onChange: function (info) {
                         self.syncStatus = 'active';
-                        // Reload data from PouchDB after remote changes
                         if (info.direction === 'pull' && info.change && info.change.docs && info.change.docs.length > 0) {
                             self.reloadFromDB();
                         }
@@ -1644,39 +1695,7 @@ document.addEventListener('alpine:init', function () {
             },
 
             gdriveExportData: function () {
-                var self = this;
-                return Promise.all([
-                    dbRange('profile_', 'profile_\uffff'),
-                    dbRange('entry_', 'entry_\uffff')
-                ]).then(function (results) {
-                    var profileDocs = results[0];
-                    var entryDocs = results[1];
-                    var profiles = {};
-                    for (var i = 0; i < profileDocs.length; i++) {
-                        var doc = profileDocs[i];
-                        profiles[doc.name] = { profile: doc.profile || {} };
-                    }
-                    var entries = [];
-                    for (var j = 0; j < entryDocs.length; j++) {
-                        var e = entryDocs[j];
-                        entries.push({
-                            profileName: e.profileName,
-                            date: e.date,
-                            weight: e.weight,
-                            entryId: e.entryId
-                        });
-                        if (profiles[e.profileName]) {
-                            if (!profiles[e.profileName].weightHistory) profiles[e.profileName].weightHistory = [];
-                            profiles[e.profileName].weightHistory.push({ date: e.date, weight: e.weight, id: e.entryId });
-                        }
-                    }
-                    return {
-                        version: 1,
-                        exportedAt: new Date().toISOString(),
-                        profiles: profiles,
-                        entries: entries
-                    };
-                });
+                return buildExportData();
             },
 
             // Neuesten lokalen Zeitstempel ermitteln (savedAt der Profile)
