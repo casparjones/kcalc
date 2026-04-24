@@ -13,8 +13,9 @@ document.addEventListener('alpine:init', function () {
 
         var rxdb = null; // set after window.__rxdbReady resolves
         var SYNC_KEY = 'kcalc_couchdb_url';
-        var replicationStates = [];
-        var replicationSubs = [];
+        var SYNC_SEQ_KEY = 'kcalc_couch_seq';
+        var syncTimers = [];
+        var syncRunning = false;
 
         // ===== CouchDB Sync Functions =====
         function getSyncUrl() {
@@ -26,90 +27,148 @@ document.addEventListener('alpine:init', function () {
             else localStorage.removeItem(SYNC_KEY);
         }
 
-        // fetch() rejects URLs with embedded credentials → strip them and use Basic Auth header
+        // Strip credentials from URL and return a fetch wrapper that injects Basic Auth header.
+        // fetch() refuses to construct Requests from URLs containing user:pass@.
         function buildCouchFetch(rawUrl) {
             try {
                 var u = new URL(rawUrl);
-                if (!u.username && !u.password) return { url: rawUrl, auth: null, customFetch: fetch };
+                if (!u.username && !u.password) return { url: rawUrl, authFetch: fetch };
                 var auth = 'Basic ' + btoa(u.username + ':' + u.password);
                 u.username = '';
                 u.password = '';
-                var cleanUrl = u.toString();
-                var customFetch = function (input, init) {
-                    init = init || {};
-                    init.headers = Object.assign({}, init.headers, { 'Authorization': auth });
+                // Build clean URL without credentials
+                var cleanUrl = u.protocol + '//' + u.host + u.pathname + u.search + u.hash;
+                var authFetch = function (input, init) {
+                    init = Object.assign({}, init);
+                    init.headers = Object.assign({ 'Authorization': auth }, init.headers || {});
                     return fetch(input, init);
                 };
-                return { url: cleanUrl, auth: auth, customFetch: customFetch };
+                return { url: cleanUrl, authFetch: authFetch };
             } catch (e) {
-                return { url: rawUrl, auth: null, customFetch: fetch };
+                return { url: rawUrl, authFetch: fetch };
             }
         }
 
+        // Custom CouchDB sync against the existing single database (same _id format as PouchDB).
+        // Uses _changes for pull and _bulk_docs for push — no new database creation required.
         function startSync(url, callbacks) {
             stopSync();
-            if (!url || !window.__replicateCouchDB) return;
+            if (!url) return;
 
-            var base = url.replace(/\/$/, '');
-            var collDefs = [
-                { coll: rxdb.profiles, suffix: '_profiles' },
-                { coll: rxdb.entries,  suffix: '_entries' },
-                { coll: rxdb.meta,     suffix: '_meta' }
-            ];
+            var built = buildCouchFetch(url.replace(/\/$/, '') + '/');
+            var couchUrl = built.url;
+            var authFetch = built.authFetch;
 
-            var collBuilds = collDefs.map(function (c) {
-                var built = buildCouchFetch(base + c.suffix + '/');
-                return { coll: c.coll, suffix: c.suffix, url: built.url, auth: built.auth, customFetch: built.customFetch };
-            });
+            function pull() {
+                var since = localStorage.getItem(SYNC_SEQ_KEY) || '0';
+                return authFetch(couchUrl + '_changes?since=' + encodeURIComponent(since) + '&include_docs=true&limit=200')
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (!data.results || data.results.length === 0) return false;
 
-            // Ensure all three CouchDB databases exist (PUT returns 201=created or 412=already exists)
-            Promise.all(collBuilds.map(function (b) {
-                var headers = { 'Content-Type': 'application/json' };
-                if (b.auth) headers['Authorization'] = b.auth;
-                return fetch(b.url, { method: 'PUT', headers: headers }).catch(function () {});
-            })).then(function () {
+                        var profileDocs = [], entryDocs = [], metaDocs = [];
+                        for (var i = 0; i < data.results.length; i++) {
+                            var row = data.results[i];
+                            var doc = row.doc || {};
+                            var deleted = row.deleted || doc._deleted;
+                            var id = row.id;
+                            if (id.startsWith('_')) continue;
 
-            replicationStates = collBuilds.map(function (b, i) {
-                var state = window.__replicateCouchDB({
-                    replicationIdentifier: 'kcalc-couch' + b.suffix,
-                    collection: b.coll,
-                    url: b.url,
-                    fetch: b.customFetch,
-                    live: true,
-                    pull: { batchSize: 60, heartbeat: 60000 },
-                    push: { batchSize: 60 }
+                            if (id.startsWith('profile_') && doc.name) {
+                                if (!deleted) profileDocs.push({ id: doc.name, name: doc.name, profileJson: JSON.stringify(doc.profile || {}) });
+                            } else if (id.startsWith('entry_') && doc.profileName && doc.date) {
+                                if (!deleted) entryDocs.push({ id: doc.profileName + '_' + doc.date, profileName: doc.profileName, date: doc.date, weight: doc.weight, entryId: doc.entryId || Date.now() });
+                            } else if (id === 'meta_active') {
+                                if (!deleted) metaDocs.push({ key: 'active', value: doc.value || '' });
+                            }
+                        }
+
+                        var ops = [];
+                        if (profileDocs.length) ops.push(rxdb.profiles.bulkUpsert(profileDocs));
+                        if (entryDocs.length)   ops.push(rxdb.entries.bulkUpsert(entryDocs));
+                        if (metaDocs.length)    ops.push(rxdb.meta.bulkUpsert(metaDocs));
+
+                        return Promise.all(ops).then(function () {
+                            localStorage.setItem(SYNC_SEQ_KEY, String(data.last_seq || since));
+                            return profileDocs.length + entryDocs.length + metaDocs.length > 0;
+                        });
+                    });
+            }
+
+            function push() {
+                return Promise.all([
+                    rxdb.profiles.find().exec(),
+                    rxdb.entries.find().exec(),
+                    rxdb.meta.find().exec()
+                ]).then(function (results) {
+                    var docs = [];
+                    results[0].forEach(function (d) {
+                        var p = {}; try { p = JSON.parse(d.toJSON().profileJson || '{}'); } catch (e) {}
+                        docs.push({ _id: 'profile_' + d.id, type: 'profile', name: d.name, profile: p });
+                    });
+                    results[1].forEach(function (d) {
+                        var e = d.toJSON();
+                        docs.push({ _id: 'entry_' + e.profileName + '_' + e.date, type: 'entry', profileName: e.profileName, date: e.date, weight: e.weight, entryId: e.entryId });
+                    });
+                    results[2].forEach(function (d) {
+                        var m = d.toJSON();
+                        docs.push({ _id: 'meta_' + m.key, type: 'meta', value: m.value });
+                    });
+
+                    if (docs.length === 0) return;
+
+                    // Fetch current _rev for each doc to avoid conflicts
+                    var ids = docs.map(function (d) { return d._id; });
+                    return authFetch(couchUrl + '_all_docs', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ keys: ids })
+                    }).then(function (r) { return r.json(); })
+                    .then(function (allDocs) {
+                        var revMap = {};
+                        (allDocs.rows || []).forEach(function (row) {
+                            if (row.value && row.value.rev) revMap[row.id] = row.value.rev;
+                        });
+                        docs.forEach(function (d) { if (revMap[d._id]) d._rev = revMap[d._id]; });
+
+                        return authFetch(couchUrl + '_bulk_docs', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ docs: docs })
+                        });
+                    });
                 });
+            }
 
-                // Wire status callbacks through the first collection only
-                if (i === 0) {
-                    replicationSubs.push(state.active$.subscribe(function (active) {
-                        if (active) { if (callbacks.onActive) callbacks.onActive(); }
-                        else        { if (callbacks.onPaused) callbacks.onPaused(null); }
-                    }));
-                    replicationSubs.push(state.error$.subscribe(function (err) {
-                        if (err && callbacks.onError) callbacks.onError(err);
-                    }));
-                    replicationSubs.push(state.canceled$.subscribe(function () {
-                        if (callbacks.onComplete) callbacks.onComplete({});
-                    }));
-                }
+            function syncCycle() {
+                if (syncRunning) return;
+                syncRunning = true;
+                if (callbacks.onActive) callbacks.onActive();
 
-                // Reload UI when remote documents arrive
-                replicationSubs.push(state.received$.subscribe(function () {
-                    if (i === 0 && callbacks.onChange) callbacks.onChange({ direction: 'pull', change: { docs: [1] } });
-                }));
+                pull()
+                    .then(function (hadChanges) {
+                        if (hadChanges && callbacks.onChange) callbacks.onChange({ direction: 'pull', change: { docs: [1] } });
+                        return push();
+                    })
+                    .then(function () {
+                        syncRunning = false;
+                        if (callbacks.onPaused) callbacks.onPaused(null);
+                    })
+                    .catch(function (err) {
+                        syncRunning = false;
+                        console.error('CouchDB sync error:', err);
+                        if (callbacks.onError) callbacks.onError(err);
+                    });
+            }
 
-                return state;
-            });
-
-            }); // end Promise.all (ensure DBs exist)
+            syncCycle();
+            syncTimers.push(setInterval(syncCycle, 30000));
         }
 
         function stopSync() {
-            replicationSubs.forEach(function (s) { try { s.unsubscribe(); } catch (e) {} });
-            replicationSubs = [];
-            replicationStates.forEach(function (s) { try { s.cancel(); } catch (e) {} });
-            replicationStates = [];
+            syncTimers.forEach(function (t) { clearInterval(t); });
+            syncTimers = [];
+            syncRunning = false;
         }
 
         // ===== RxDB Helper Functions =====
