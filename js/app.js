@@ -26,6 +26,26 @@ document.addEventListener('alpine:init', function () {
             else localStorage.removeItem(SYNC_KEY);
         }
 
+        // fetch() rejects URLs with embedded credentials → strip them and use Basic Auth header
+        function buildCouchFetch(rawUrl) {
+            try {
+                var u = new URL(rawUrl);
+                if (!u.username && !u.password) return { url: rawUrl, customFetch: fetch };
+                var auth = 'Basic ' + btoa(u.username + ':' + u.password);
+                u.username = '';
+                u.password = '';
+                var cleanUrl = u.toString();
+                var customFetch = function (input, init) {
+                    init = init || {};
+                    init.headers = Object.assign({}, init.headers, { 'Authorization': auth });
+                    return fetch(typeof input === 'string' ? input : input, init);
+                };
+                return { url: cleanUrl, customFetch: customFetch };
+            } catch (e) {
+                return { url: rawUrl, customFetch: fetch };
+            }
+        }
+
         function startSync(url, callbacks) {
             stopSync();
             if (!url || !window.__replicateCouchDB) return;
@@ -39,10 +59,12 @@ document.addEventListener('alpine:init', function () {
             ];
 
             replicationStates = collDefs.map(function (c, i) {
+                var built = buildCouchFetch(base + c.suffix + '/');
                 var state = window.__replicateCouchDB({
                     replicationIdentifier: 'kcalc-couch' + c.suffix,
                     collection: c.coll,
-                    url: base + c.suffix + '/',
+                    url: built.url,
+                    fetch: built.customFetch,
                     live: true,
                     pull: { batchSize: 60, heartbeat: 60000 },
                     push: { batchSize: 60 }
