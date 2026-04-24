@@ -127,9 +127,22 @@ document.addEventListener('alpine:init', function () {
 
         function migrateFromPouchDB() {
             if (localStorage.getItem(RXDB_MIGRATED_KEY)) return Promise.resolve(false);
+
+            // Load PouchDB dynamically – only needed for this one-time migration
+            var pouchReady = (typeof PouchDB !== 'undefined')
+                ? Promise.resolve()
+                : new Promise(function (resolve) {
+                    var s = document.createElement('script');
+                    s.src = 'https://cdn.jsdelivr.net/npm/pouchdb@9.0.0/dist/pouchdb.min.js';
+                    s.onload = resolve;
+                    s.onerror = resolve;
+                    document.head.appendChild(s);
+                });
+
+            return pouchReady.then(function () {
             if (typeof PouchDB === 'undefined') {
                 localStorage.setItem(RXDB_MIGRATED_KEY, '1');
-                return Promise.resolve(false);
+                return false;
             }
 
             var oldDb = new PouchDB('kcalc');
@@ -171,6 +184,7 @@ document.addEventListener('alpine:init', function () {
                 localStorage.setItem(RXDB_MIGRATED_KEY, '1');
                 return false;
             });
+            }); // end pouchReady.then
         }
 
         function loadAllProfilesFromDB() {
