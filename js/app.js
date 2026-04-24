@@ -30,7 +30,7 @@ document.addEventListener('alpine:init', function () {
         function buildCouchFetch(rawUrl) {
             try {
                 var u = new URL(rawUrl);
-                if (!u.username && !u.password) return { url: rawUrl, customFetch: fetch };
+                if (!u.username && !u.password) return { url: rawUrl, auth: null, customFetch: fetch };
                 var auth = 'Basic ' + btoa(u.username + ':' + u.password);
                 u.username = '';
                 u.password = '';
@@ -38,11 +38,11 @@ document.addEventListener('alpine:init', function () {
                 var customFetch = function (input, init) {
                     init = init || {};
                     init.headers = Object.assign({}, init.headers, { 'Authorization': auth });
-                    return fetch(typeof input === 'string' ? input : input, init);
+                    return fetch(input, init);
                 };
-                return { url: cleanUrl, customFetch: customFetch };
+                return { url: cleanUrl, auth: auth, customFetch: customFetch };
             } catch (e) {
-                return { url: rawUrl, customFetch: fetch };
+                return { url: rawUrl, auth: null, customFetch: fetch };
             }
         }
 
@@ -50,7 +50,6 @@ document.addEventListener('alpine:init', function () {
             stopSync();
             if (!url || !window.__replicateCouchDB) return;
 
-            // Append collection-specific suffix to the base CouchDB URL
             var base = url.replace(/\/$/, '');
             var collDefs = [
                 { coll: rxdb.profiles, suffix: '_profiles' },
@@ -58,13 +57,24 @@ document.addEventListener('alpine:init', function () {
                 { coll: rxdb.meta,     suffix: '_meta' }
             ];
 
-            replicationStates = collDefs.map(function (c, i) {
+            var collBuilds = collDefs.map(function (c) {
                 var built = buildCouchFetch(base + c.suffix + '/');
+                return { coll: c.coll, suffix: c.suffix, url: built.url, auth: built.auth, customFetch: built.customFetch };
+            });
+
+            // Ensure all three CouchDB databases exist (PUT returns 201=created or 412=already exists)
+            Promise.all(collBuilds.map(function (b) {
+                var headers = { 'Content-Type': 'application/json' };
+                if (b.auth) headers['Authorization'] = b.auth;
+                return fetch(b.url, { method: 'PUT', headers: headers }).catch(function () {});
+            })).then(function () {
+
+            replicationStates = collBuilds.map(function (b, i) {
                 var state = window.__replicateCouchDB({
-                    replicationIdentifier: 'kcalc-couch' + c.suffix,
-                    collection: c.coll,
-                    url: built.url,
-                    fetch: built.customFetch,
+                    replicationIdentifier: 'kcalc-couch' + b.suffix,
+                    collection: b.coll,
+                    url: b.url,
+                    fetch: b.customFetch,
                     live: true,
                     pull: { batchSize: 60, heartbeat: 60000 },
                     push: { batchSize: 60 }
@@ -91,6 +101,8 @@ document.addEventListener('alpine:init', function () {
 
                 return state;
             });
+
+            }); // end Promise.all (ensure DBs exist)
         }
 
         function stopSync() {
