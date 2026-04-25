@@ -1382,6 +1382,35 @@ h3 { font-size: var(--font-size-xl); }
     margin-bottom: var(--spacing-md);
 }
 
+.sync-tabs {
+    display: flex;
+    border-bottom: 2px solid var(--color-border);
+    margin-bottom: var(--spacing-md);
+    gap: 0;
+}
+
+.sync-tab-btn {
+    padding: var(--spacing-xs) var(--spacing-md);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-light);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.sync-tab-btn.active {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
+}
+
+.sync-tab-btn:hover:not(.active) {
+    color: var(--color-text);
+}
+
 .sync-connect-form {
     margin-top: var(--spacing-sm);
 }

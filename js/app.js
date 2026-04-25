@@ -171,6 +171,177 @@ document.addEventListener('alpine:init', function () {
             syncRunning = false;
         }
 
+        // ===== RxForge Sync Functions =====
+        var RXFORGE_TOKEN_KEY = 'kcalc_rxforge_token';
+        var RXFORGE_CHECKPOINT_KEY = 'kcalc_rxforge_checkpoint';
+        var RXFORGE_APP_ID = 'f5329f79-12ef-4bd9-88ea-045968ba3706';
+        var RXFORGE_BASE = 'http://localhost:8080';
+
+        var rxforgeJwt = null;
+        var rxforgeJwtExpires = 0;
+        var rxforgeSseSource = null;
+        var rxforgeTimers = [];
+        var rxforgeSyncRunning = false;
+
+        function getRxForgeToken() {
+            return localStorage.getItem(RXFORGE_TOKEN_KEY) || '';
+        }
+
+        function setRxForgeToken(token) {
+            if (token) localStorage.setItem(RXFORGE_TOKEN_KEY, token);
+            else localStorage.removeItem(RXFORGE_TOKEN_KEY);
+        }
+
+        function rxforgeExchangeToken(rxftToken) {
+            return fetch(RXFORGE_BASE + '/api/v1/auth/token/exchange', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: rxftToken })
+            }).then(function (r) {
+                if (!r.ok) throw new Error('Token-Austausch fehlgeschlagen: ' + r.status);
+                return r.json();
+            }).then(function (data) {
+                rxforgeJwt = data.access_token;
+                rxforgeJwtExpires = Date.now() + (data.expires_in || 900) * 1000;
+                return rxforgeJwt;
+            });
+        }
+
+        function rxforgeGetJwt(rxftToken) {
+            var twoMin = 2 * 60 * 1000;
+            if (rxforgeJwt && rxforgeJwtExpires - Date.now() > twoMin) {
+                return Promise.resolve(rxforgeJwt);
+            }
+            return rxforgeExchangeToken(rxftToken);
+        }
+
+        function rxforgePull(rxftToken) {
+            var checkpoint = localStorage.getItem(RXFORGE_CHECKPOINT_KEY) || '';
+            var url = RXFORGE_BASE + '/api/v1/sync/' + RXFORGE_APP_ID + '/pull?limit=100';
+            if (checkpoint) url += '&checkpoint=' + encodeURIComponent(checkpoint);
+
+            return fetch(url, {
+                headers: { 'Authorization': 'Bearer ' + rxftToken }
+            }).then(function (r) {
+                if (!r.ok) throw new Error('RxForge Pull fehlgeschlagen: ' + r.status);
+                return r.json();
+            }).then(function (data) {
+                var docs = data.documents || [];
+                if (docs.length === 0) {
+                    if (data.checkpoint) localStorage.setItem(RXFORGE_CHECKPOINT_KEY, String(data.checkpoint));
+                    return false;
+                }
+
+                var profileDocs = [], entryDocs = [], metaDocs = [];
+                docs.forEach(function (doc) {
+                    if (doc._deleted) return;
+                    var id = doc._id || '';
+                    if (id.startsWith('profile_') && doc.name) {
+                        profileDocs.push({ id: doc.name, name: doc.name, profileJson: JSON.stringify(doc.profile || {}) });
+                    } else if (id.startsWith('entry_') && doc.profileName && doc.date) {
+                        entryDocs.push({ id: doc.profileName + '_' + doc.date, profileName: doc.profileName, date: doc.date, weight: doc.weight, entryId: doc.entryId || Date.now() });
+                    } else if (id === 'meta_active') {
+                        metaDocs.push({ key: 'active', value: doc.value || '' });
+                    }
+                });
+
+                var ops = [];
+                if (profileDocs.length) ops.push(rxdb.profiles.bulkUpsert(profileDocs));
+                if (entryDocs.length)   ops.push(rxdb.entries.bulkUpsert(entryDocs));
+                if (metaDocs.length)    ops.push(rxdb.meta.bulkUpsert(metaDocs));
+
+                return Promise.all(ops).then(function () {
+                    if (data.checkpoint) localStorage.setItem(RXFORGE_CHECKPOINT_KEY, String(data.checkpoint));
+                    return profileDocs.length + entryDocs.length + metaDocs.length > 0;
+                });
+            });
+        }
+
+        function rxforgePush(rxftToken) {
+            return rxforgeGetJwt(rxftToken).then(function (jwt) {
+                return Promise.all([
+                    rxdb.profiles.find().exec(),
+                    rxdb.entries.find().exec(),
+                    rxdb.meta.find().exec()
+                ]).then(function (results) {
+                    var docs = [];
+                    results[0].forEach(function (d) {
+                        var p = {}; try { p = JSON.parse(d.toJSON().profileJson || '{}'); } catch (e) {}
+                        docs.push({ _id: 'profile_' + d.id, type: 'profile', name: d.name, profile: p, updatedAt: Date.now() });
+                    });
+                    results[1].forEach(function (d) {
+                        var e = d.toJSON();
+                        docs.push({ _id: 'entry_' + e.profileName + '_' + e.date, type: 'entry', profileName: e.profileName, date: e.date, weight: e.weight, entryId: e.entryId, updatedAt: Date.now() });
+                    });
+                    results[2].forEach(function (d) {
+                        var m = d.toJSON();
+                        docs.push({ _id: 'meta_' + m.key, type: 'meta', value: m.value, updatedAt: Date.now() });
+                    });
+
+                    if (docs.length === 0) return;
+
+                    return fetch(RXFORGE_BASE + '/api/v1/sync/' + RXFORGE_APP_ID + '/push', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+                        body: JSON.stringify({ documents: docs })
+                    }).then(function (r) {
+                        if (!r.ok) throw new Error('RxForge Push fehlgeschlagen: ' + r.status);
+                        return r.json();
+                    });
+                });
+            });
+        }
+
+        function rxforgeStartSse(rxftToken, onChanges) {
+            if (rxforgeSseSource) { rxforgeSseSource.close(); rxforgeSseSource = null; }
+            var url = RXFORGE_BASE + '/api/v1/sync/' + RXFORGE_APP_ID + '/stream?token=' + encodeURIComponent(rxftToken);
+            try {
+                rxforgeSseSource = new EventSource(url);
+                rxforgeSseSource.onmessage = function (event) {
+                    try { var d = JSON.parse(event.data); if (d && onChanges) onChanges(d); } catch (e) {}
+                };
+            } catch (e) {
+                console.warn('RxForge SSE nicht verfügbar, nur Polling aktiv');
+            }
+        }
+
+        function startRxForgeSync(rxftToken, callbacks) {
+            stopRxForgeSync();
+            if (!rxftToken) return;
+
+            function syncCycle() {
+                if (rxforgeSyncRunning) return;
+                rxforgeSyncRunning = true;
+                if (callbacks.onActive) callbacks.onActive();
+
+                rxforgePull(rxftToken)
+                    .then(function (hadChanges) {
+                        if (hadChanges && callbacks.onChange) callbacks.onChange();
+                        return rxforgePush(rxftToken);
+                    })
+                    .then(function () {
+                        rxforgeSyncRunning = false;
+                        if (callbacks.onPaused) callbacks.onPaused(null);
+                    })
+                    .catch(function (err) {
+                        rxforgeSyncRunning = false;
+                        console.error('RxForge Sync-Fehler:', err);
+                        if (callbacks.onError) callbacks.onError(err);
+                    });
+            }
+
+            rxforgeStartSse(rxftToken, function () { syncCycle(); });
+            syncCycle();
+            rxforgeTimers.push(setInterval(syncCycle, 30000));
+        }
+
+        function stopRxForgeSync() {
+            rxforgeTimers.forEach(function (t) { clearInterval(t); });
+            rxforgeTimers = [];
+            rxforgeSyncRunning = false;
+            if (rxforgeSseSource) { rxforgeSseSource.close(); rxforgeSseSource = null; }
+        }
+
         // ===== RxDB Helper Functions =====
 
         function migrateFromLocalStorage() {
@@ -443,9 +614,15 @@ document.addEventListener('alpine:init', function () {
 
             // ===== Sync State =====
             settingsOpen: false,
+            settingsTab: 'rxforge',
             syncUrl: '',
             syncStatus: 'disconnected', // 'disconnected', 'active', 'paused', 'error'
             syncError: '',
+
+            // ===== RxForge Sync State =====
+            rxforgeToken: localStorage.getItem('kcalc_rxforge_token') || '',
+            rxforgeStatus: 'disconnected',
+            rxforgeError: '',
 
             // ===== Google Drive Sync State =====
             isChrome: /Chrome/.test(navigator.userAgent) && !/Edg/.test(navigator.userAgent),
@@ -486,6 +663,10 @@ document.addEventListener('alpine:init', function () {
                     // Start CouchDB sync if URL is configured (needs rxdb to be ready)
                     self.syncUrl = getSyncUrl();
                     if (self.syncUrl) self.startCouchSync();
+
+                    // Start RxForge sync if token is configured
+                    self.rxforgeToken = getRxForgeToken();
+                    if (self.rxforgeToken) self.connectRxForge();
 
                     // Google Drive: intelligenter Sync beim Start (vergleicht Zeitstempel)
                     if (self.gdriveToken && self.isChrome) {
@@ -1616,6 +1797,51 @@ document.addEventListener('alpine:init', function () {
                 this.syncStatus = 'disconnected';
                 this.syncError = '';
                 this.toast('Sync getrennt', 'info');
+            },
+
+            // ===== RxForge Sync =====
+            connectRxForge: function () {
+                var self = this;
+                var token = this.rxforgeToken.trim();
+                if (!token) return;
+                setRxForgeToken(token);
+                this.rxforgeStatus = 'active';
+                this.rxforgeError = '';
+                startRxForgeSync(token, {
+                    onActive: function () { self.rxforgeStatus = 'active'; },
+                    onPaused: function (err) {
+                        self.rxforgeStatus = err ? 'error' : 'paused';
+                        if (err) self.rxforgeError = err.message || 'Verbindungsproblem';
+                    },
+                    onChange: function () { self.reloadFromDB(); },
+                    onError: function (err) {
+                        self.rxforgeStatus = 'error';
+                        self.rxforgeError = (err && err.message) || 'Sync-Fehler';
+                    }
+                });
+                this.toast('RxForge Sync gestartet', 'success');
+            },
+
+            disconnectRxForge: function () {
+                stopRxForgeSync();
+                setRxForgeToken('');
+                rxforgeJwt = null;
+                rxforgeJwtExpires = 0;
+                localStorage.removeItem(RXFORGE_CHECKPOINT_KEY);
+                this.rxforgeToken = '';
+                this.rxforgeStatus = 'disconnected';
+                this.rxforgeError = '';
+                this.toast('RxForge getrennt', 'info');
+            },
+
+            get rxforgeStatusText() {
+                var labels = { disconnected: 'Nicht verbunden', active: 'Synchronisiert...', paused: 'Verbunden', error: 'Fehler' };
+                return labels[this.rxforgeStatus] || 'Nicht verbunden';
+            },
+
+            get rxforgeStatusColor() {
+                var colors = { disconnected: 'gray', active: 'green', paused: 'green', error: 'red' };
+                return colors[this.rxforgeStatus] || 'gray';
             },
 
             reloadFromDB: function () {
