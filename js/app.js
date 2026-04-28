@@ -171,153 +171,289 @@ document.addEventListener('alpine:init', function () {
             syncRunning = false;
         }
 
-        // ===== RxForge Sync Functions =====
-        var RXFORGE_TOKEN_KEY = 'kcalc_rxforge_token';
-        var RXFORGE_CHECKPOINT_KEY = 'kcalc_rxforge_checkpoint';
-        var RXFORGE_APP_ID = 'f5329f79-12ef-4bd9-88ea-045968ba3706';
-        var RXFORGE_BASE = 'http://localhost:8080';
+        // ===== RxForge Sync Functions (OAuth 2.0 + RxDB Native Protocol) =====
+        var RXFORGE_ACCESS_KEY  = 'kcalc_rxforge_access_token';
+        var RXFORGE_REFRESH_KEY = 'kcalc_rxforge_refresh_token';
+        var RXFORGE_EXPIRES_KEY = 'kcalc_rxforge_expires_at';
+        var RXFORGE_CHECKPOINT_KEY  = 'kcalc_rxforge_checkpoint';
+        var RXFORGE_MASTER_CACHE_KEY = 'kcalc_rxforge_master_cache';
+        var RXFORGE_APP_ID    = 'a72c6d46-4d6a-46b4-b4c1-7ee6b31b21a3';
+        var RXFORGE_BASE      = 'https://rxforge.de';
+        var RXFORGE_CLIENT_ID = 'rxf_d1863d3a6fa94566';
 
-        var rxforgeJwt = null;
-        var rxforgeJwtExpires = 0;
-        var rxforgeSseSource = null;
-        var rxforgeTimers = [];
+        var rxforgeSseSource   = null;
+        var rxforgeTimers      = [];
         var rxforgeSyncRunning = false;
 
-        function getRxForgeToken() {
-            return localStorage.getItem(RXFORGE_TOKEN_KEY) || '';
+        // --- OAuth helpers ---
+
+        function rxforgeHasToken() {
+            return !!localStorage.getItem(RXFORGE_ACCESS_KEY);
         }
 
-        function setRxForgeToken(token) {
-            if (token) localStorage.setItem(RXFORGE_TOKEN_KEY, token);
-            else localStorage.removeItem(RXFORGE_TOKEN_KEY);
-        }
+        /** Returns a valid access_token, refreshing via refresh_token if needed. */
+        function rxforgeGetValidToken() {
+            var token     = localStorage.getItem(RXFORGE_ACCESS_KEY) || '';
+            var expiresAt = parseInt(localStorage.getItem(RXFORGE_EXPIRES_KEY) || '0', 10);
+            var refresh   = localStorage.getItem(RXFORGE_REFRESH_KEY) || '';
+            var fiveMin   = 5 * 60 * 1000;
 
-        function rxforgeExchangeToken(rxftToken) {
-            return fetch(RXFORGE_BASE + '/api/v1/auth/token/exchange', {
+            if (token && expiresAt && expiresAt - Date.now() > fiveMin) {
+                return Promise.resolve(token);
+            }
+            if (!refresh) return Promise.resolve(token);
+
+            return fetch(RXFORGE_BASE + '/oauth/token', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token: rxftToken })
-            }).then(function (r) {
-                if (!r.ok) throw new Error('Token-Austausch fehlgeschlagen: ' + r.status);
-                return r.json();
-            }).then(function (data) {
-                rxforgeJwt = data.access_token;
-                rxforgeJwtExpires = Date.now() + (data.expires_in || 900) * 1000;
-                return rxforgeJwt;
+                body: JSON.stringify({ grant_type: 'refresh_token', client_id: RXFORGE_CLIENT_ID, refresh_token: refresh })
+            }).then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (data) {
+                if (!data || !data.access_token) return token;
+                localStorage.setItem(RXFORGE_ACCESS_KEY, data.access_token);
+                if (data.refresh_token) localStorage.setItem(RXFORGE_REFRESH_KEY, data.refresh_token);
+                if (data.expires_in)    localStorage.setItem(RXFORGE_EXPIRES_KEY, String(Date.now() + data.expires_in * 1000));
+                return data.access_token;
+            }).catch(function () { return token; });
+        }
+
+        function rxforgeGenerateCodeVerifier() {
+            var arr = new Uint8Array(32);
+            window.crypto.getRandomValues(arr);
+            var str = '';
+            arr.forEach(function (b) { str += String.fromCharCode(b); });
+            return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        }
+
+        function rxforgeCodeChallenge(verifier) {
+            return window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
+                .then(function (hash) {
+                    var str = '';
+                    new Uint8Array(hash).forEach(function (b) { str += String.fromCharCode(b); });
+                    return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+                });
+        }
+
+        /** Redirect the browser to the RxForge OAuth authorize page. */
+        function rxforgeOAuthConnect() {
+            var verifier = rxforgeGenerateCodeVerifier();
+            var state    = Math.random().toString(36).slice(2);
+            sessionStorage.setItem('rxforge_cv', verifier);
+            sessionStorage.setItem('rxforge_state', state);
+
+            rxforgeCodeChallenge(verifier).then(function (challenge) {
+                var redirectUri = window.location.origin;
+                var params = new URLSearchParams({
+                    client_id:             RXFORGE_CLIENT_ID,
+                    redirect_uri:          redirectUri,
+                    response_type:         'code',
+                    code_challenge:        challenge,
+                    code_challenge_method: 'S256',
+                    state:                 state
+                });
+                window.location.href = RXFORGE_BASE + '/oauth/authorize?' + params.toString();
             });
         }
 
-        function rxforgeGetJwt(rxftToken) {
-            var twoMin = 2 * 60 * 1000;
-            if (rxforgeJwt && rxforgeJwtExpires - Date.now() > twoMin) {
-                return Promise.resolve(rxforgeJwt);
-            }
-            return rxforgeExchangeToken(rxftToken);
-        }
+        /**
+         * Call on page load: exchanges the OAuth ?code= callback for tokens.
+         * Returns a Promise that resolves to the access_token string, or '' if no code present.
+         */
+        function rxforgeHandleOAuthCallback() {
+            var params   = new URLSearchParams(window.location.search);
+            var code     = params.get('code');
+            var state    = params.get('state');
+            if (!code) return Promise.resolve('');
 
-        function rxforgePull(rxftToken) {
-            var checkpoint = localStorage.getItem(RXFORGE_CHECKPOINT_KEY) || '';
-            var url = RXFORGE_BASE + '/api/v1/sync/' + RXFORGE_APP_ID + '/pull?limit=100';
-            if (checkpoint) url += '&checkpoint=' + encodeURIComponent(checkpoint);
+            var expectedState = sessionStorage.getItem('rxforge_state');
+            var verifier      = sessionStorage.getItem('rxforge_cv');
+            sessionStorage.removeItem('rxforge_cv');
+            sessionStorage.removeItem('rxforge_state');
+            window.history.replaceState({}, document.title, window.location.pathname);
 
-            return fetch(url, {
-                headers: { 'Authorization': 'Bearer ' + rxftToken }
+            if (state !== expectedState || !verifier) return Promise.resolve('');
+
+            return fetch(RXFORGE_BASE + '/oauth/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    grant_type:    'authorization_code',
+                    client_id:     RXFORGE_CLIENT_ID,
+                    code:          code,
+                    code_verifier: verifier,
+                    redirect_uri:  window.location.origin
+                })
             }).then(function (r) {
-                if (!r.ok) throw new Error('RxForge Pull fehlgeschlagen: ' + r.status);
+                if (!r.ok) throw new Error('OAuth Token-Austausch fehlgeschlagen: ' + r.status);
                 return r.json();
             }).then(function (data) {
-                var docs = data.documents || [];
-                if (docs.length === 0) {
-                    if (data.checkpoint) localStorage.setItem(RXFORGE_CHECKPOINT_KEY, String(data.checkpoint));
-                    return false;
-                }
-
-                var profileDocs = [], entryDocs = [], metaDocs = [];
-                docs.forEach(function (doc) {
-                    if (doc._deleted) return;
-                    var id = doc._id || '';
-                    if (id.startsWith('profile_') && doc.name) {
-                        profileDocs.push({ id: doc.name, name: doc.name, profileJson: JSON.stringify(doc.profile || {}) });
-                    } else if (id.startsWith('entry_') && doc.profileName && doc.date) {
-                        entryDocs.push({ id: doc.profileName + '_' + doc.date, profileName: doc.profileName, date: doc.date, weight: doc.weight, entryId: doc.entryId || Date.now() });
-                    } else if (id === 'meta_active') {
-                        metaDocs.push({ key: 'active', value: doc.value || '' });
-                    }
-                });
-
-                var ops = [];
-                if (profileDocs.length) ops.push(rxdb.profiles.bulkUpsert(profileDocs));
-                if (entryDocs.length)   ops.push(rxdb.entries.bulkUpsert(entryDocs));
-                if (metaDocs.length)    ops.push(rxdb.meta.bulkUpsert(metaDocs));
-
-                return Promise.all(ops).then(function () {
-                    if (data.checkpoint) localStorage.setItem(RXFORGE_CHECKPOINT_KEY, String(data.checkpoint));
-                    return profileDocs.length + entryDocs.length + metaDocs.length > 0;
-                });
+                localStorage.setItem(RXFORGE_ACCESS_KEY, data.access_token);
+                if (data.refresh_token) localStorage.setItem(RXFORGE_REFRESH_KEY, data.refresh_token);
+                if (data.expires_in)    localStorage.setItem(RXFORGE_EXPIRES_KEY, String(Date.now() + data.expires_in * 1000));
+                return data.access_token;
             });
         }
 
-        function rxforgePush(rxftToken) {
-            return rxforgeGetJwt(rxftToken).then(function (jwt) {
+        // --- Master-State Cache (needed for assumedMasterState in push rows) ---
+
+        function rxforgeLoadMasterCache() {
+            var raw = localStorage.getItem(RXFORGE_MASTER_CACHE_KEY);
+            if (raw) try { return JSON.parse(raw); } catch (e) {}
+            return {};
+        }
+
+        function rxforgeSaveMasterCache(cache) {
+            localStorage.setItem(RXFORGE_MASTER_CACHE_KEY, JSON.stringify(cache));
+        }
+
+        // --- Sync core ---
+
+        function rxforgePull() {
+            return rxforgeGetValidToken().then(function (token) {
+                var checkpoint = localStorage.getItem(RXFORGE_CHECKPOINT_KEY) || '';
+                var url = RXFORGE_BASE + '/api/v1/sync/' + RXFORGE_APP_ID + '/pull?limit=100';
+                if (checkpoint) url += '&checkpoint=' + encodeURIComponent(checkpoint);
+
+                return fetch(url, { headers: { 'Authorization': 'Bearer ' + token } })
+                    .then(function (r) {
+                        if (!r.ok) throw new Error('RxForge Pull fehlgeschlagen: ' + r.status);
+                        return r.json();
+                    }).then(function (data) {
+                        // Always advance checkpoint (server may filter docs but still move forward)
+                        if (data.checkpoint != null) localStorage.setItem(RXFORGE_CHECKPOINT_KEY, String(data.checkpoint));
+
+                        var docs = data.documents || [];
+                        if (docs.length === 0) return false;
+
+                        var masterCache  = rxforgeLoadMasterCache();
+                        var profileDocs  = [], entryDocs = [], metaDocs = [];
+
+                        docs.forEach(function (doc) {
+                            var id = doc.id || '';
+                            masterCache[id] = doc; // track server state for later push
+                            if (doc._deleted) return;
+
+                            if (id.startsWith('profile_') && doc.name) {
+                                profileDocs.push({ id: doc.name, name: doc.name, profileJson: doc.profileJson || JSON.stringify(doc.profile || {}) });
+                            } else if (id.startsWith('entry_') && doc.profileName && doc.date) {
+                                entryDocs.push({ id: doc.profileName + '_' + doc.date, profileName: doc.profileName, date: doc.date, weight: doc.weight || 0, entryId: doc.entryId || Date.now() });
+                            } else if (id.startsWith('meta_') && doc.key) {
+                                metaDocs.push({ key: doc.key, value: doc.value || '' });
+                            }
+                        });
+
+                        rxforgeSaveMasterCache(masterCache);
+
+                        var ops = [];
+                        if (profileDocs.length) ops.push(rxdb.profiles.bulkUpsert(profileDocs));
+                        if (entryDocs.length)   ops.push(rxdb.entries.bulkUpsert(entryDocs));
+                        if (metaDocs.length)    ops.push(rxdb.meta.bulkUpsert(metaDocs));
+
+                        return Promise.all(ops).then(function () {
+                            return profileDocs.length + entryDocs.length + metaDocs.length > 0;
+                        });
+                    });
+            });
+        }
+
+        function rxforgePush() {
+            return rxforgeGetValidToken().then(function (token) {
                 return Promise.all([
                     rxdb.profiles.find().exec(),
                     rxdb.entries.find().exec(),
                     rxdb.meta.find().exec()
                 ]).then(function (results) {
-                    var docs = [];
+                    var masterCache = rxforgeLoadMasterCache();
+                    var now  = Date.now();
+                    var rows = [];
+
                     results[0].forEach(function (d) {
                         var p = {}; try { p = JSON.parse(d.toJSON().profileJson || '{}'); } catch (e) {}
-                        docs.push({ _id: 'profile_' + d.id, type: 'profile', name: d.name, profile: p, updatedAt: Date.now() });
+                        var rid = 'profile_' + d.id;
+                        rows.push({ assumedMasterState: masterCache[rid] || null, newDocumentState: { id: rid, type: 'profile', name: d.name, profileJson: d.toJSON().profileJson, profile: p, updatedAt: now } });
                     });
                     results[1].forEach(function (d) {
-                        var e = d.toJSON();
-                        docs.push({ _id: 'entry_' + e.profileName + '_' + e.date, type: 'entry', profileName: e.profileName, date: e.date, weight: e.weight, entryId: e.entryId, updatedAt: Date.now() });
+                        var e   = d.toJSON();
+                        var rid = 'entry_' + e.id;
+                        rows.push({ assumedMasterState: masterCache[rid] || null, newDocumentState: { id: rid, type: 'entry', profileName: e.profileName, date: e.date, weight: e.weight, entryId: e.entryId, updatedAt: now } });
                     });
                     results[2].forEach(function (d) {
-                        var m = d.toJSON();
-                        docs.push({ _id: 'meta_' + m.key, type: 'meta', value: m.value, updatedAt: Date.now() });
+                        var m   = d.toJSON();
+                        var rid = 'meta_' + m.key;
+                        rows.push({ assumedMasterState: masterCache[rid] || null, newDocumentState: { id: rid, type: 'meta', key: m.key, value: m.value, updatedAt: now } });
                     });
 
-                    if (docs.length === 0) return;
+                    if (rows.length === 0) return;
 
                     return fetch(RXFORGE_BASE + '/api/v1/sync/' + RXFORGE_APP_ID + '/push', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
-                        body: JSON.stringify({ documents: docs })
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                        body: JSON.stringify({ rows: rows })
                     }).then(function (r) {
                         if (!r.ok) throw new Error('RxForge Push fehlgeschlagen: ' + r.status);
                         return r.json();
+                    }).then(function (data) {
+                        // Update cache with successfully written docs
+                        rows.forEach(function (row) { masterCache[row.newDocumentState.id] = row.newDocumentState; });
+
+                        // Conflicts: server's actual state wins when server is newer (last-write-wins by updatedAt)
+                        var conflicts   = data.conflicts || [];
+                        var localWrites = [];
+                        conflicts.forEach(function (serverDoc) {
+                            masterCache[serverDoc.id] = serverDoc; // always track real master state
+                            var localRow = null;
+                            for (var i = 0; i < rows.length; i++) {
+                                if (rows[i].newDocumentState.id === serverDoc.id) { localRow = rows[i]; break; }
+                            }
+                            if (!localRow) return;
+                            // If server is newer, overwrite local
+                            if (!serverDoc._deleted && (serverDoc.updatedAt || 0) >= (localRow.newDocumentState.updatedAt || 0)) {
+                                var id = serverDoc.id || '';
+                                if (id.startsWith('profile_') && serverDoc.name)
+                                    localWrites.push(rxdb.profiles.upsert({ id: serverDoc.name, name: serverDoc.name, profileJson: serverDoc.profileJson || JSON.stringify(serverDoc.profile || {}) }));
+                                else if (id.startsWith('entry_') && serverDoc.profileName && serverDoc.date)
+                                    localWrites.push(rxdb.entries.upsert({ id: serverDoc.profileName + '_' + serverDoc.date, profileName: serverDoc.profileName, date: serverDoc.date, weight: serverDoc.weight || 0, entryId: serverDoc.entryId }));
+                                else if (id.startsWith('meta_') && serverDoc.key)
+                                    localWrites.push(rxdb.meta.upsert({ key: serverDoc.key, value: serverDoc.value || '' }));
+                            }
+                        });
+
+                        rxforgeSaveMasterCache(masterCache);
+                        return Promise.all(localWrites);
                     });
                 });
             });
         }
 
-        function rxforgeStartSse(rxftToken, onChanges) {
+        function rxforgeStartSse(onChanges) {
             if (rxforgeSseSource) { rxforgeSseSource.close(); rxforgeSseSource = null; }
-            var url = RXFORGE_BASE + '/api/v1/sync/' + RXFORGE_APP_ID + '/stream?token=' + encodeURIComponent(rxftToken);
-            try {
-                rxforgeSseSource = new EventSource(url);
-                rxforgeSseSource.onmessage = function (event) {
-                    try { var d = JSON.parse(event.data); if (d && onChanges) onChanges(d); } catch (e) {}
-                };
-            } catch (e) {
-                console.warn('RxForge SSE nicht verfügbar, nur Polling aktiv');
-            }
+            rxforgeGetValidToken().then(function (token) {
+                if (!token) return;
+                var url = RXFORGE_BASE + '/api/v1/sync/' + RXFORGE_APP_ID + '/stream?access_token=' + encodeURIComponent(token);
+                try {
+                    rxforgeSseSource = new EventSource(url);
+                    rxforgeSseSource.onmessage = function (event) {
+                        try { var d = JSON.parse(event.data); if (d && onChanges) onChanges(d); } catch (e) {}
+                    };
+                } catch (e) {
+                    console.warn('RxForge SSE nicht verfügbar, nur Polling aktiv');
+                }
+            });
         }
 
-        function startRxForgeSync(rxftToken, callbacks) {
+        function startRxForgeSync(callbacks) {
             stopRxForgeSync();
-            if (!rxftToken) return;
+            if (!rxforgeHasToken()) return;
 
             function syncCycle() {
                 if (rxforgeSyncRunning) return;
                 rxforgeSyncRunning = true;
                 if (callbacks.onActive) callbacks.onActive();
 
-                rxforgePull(rxftToken)
+                rxforgePull()
                     .then(function (hadChanges) {
                         if (hadChanges && callbacks.onChange) callbacks.onChange();
-                        return rxforgePush(rxftToken);
+                        return rxforgePush();
                     })
                     .then(function () {
                         rxforgeSyncRunning = false;
@@ -330,7 +466,7 @@ document.addEventListener('alpine:init', function () {
                     });
             }
 
-            rxforgeStartSse(rxftToken, function () { syncCycle(); });
+            rxforgeStartSse(function () { syncCycle(); });
             syncCycle();
             rxforgeTimers.push(setInterval(syncCycle, 30000));
         }
@@ -620,7 +756,7 @@ document.addEventListener('alpine:init', function () {
             syncError: '',
 
             // ===== RxForge Sync State =====
-            rxforgeToken: localStorage.getItem('kcalc_rxforge_token') || '',
+            rxforgeConnected: !!localStorage.getItem('kcalc_rxforge_access_token'),
             rxforgeStatus: 'disconnected',
             rxforgeError: '',
 
@@ -636,6 +772,17 @@ document.addEventListener('alpine:init', function () {
             init: function () {
                 var self = this;
                 this.newDate = this.todayStr();
+
+                // Handle OAuth callback (?code=...) before anything else
+                rxforgeHandleOAuthCallback().then(function (token) {
+                    if (token) {
+                        self.rxforgeConnected = true;
+                        self.settingsOpen = true;
+                        self.settingsTab = 'rxforge';
+                    }
+                }).catch(function (err) {
+                    console.error('RxForge OAuth Callback fehlgeschlagen:', err);
+                });
 
                 // Wait for RxDB, migrate legacy data, then load profiles
                 window.__rxdbReady.then(function (database) {
@@ -664,9 +811,8 @@ document.addEventListener('alpine:init', function () {
                     self.syncUrl = getSyncUrl();
                     if (self.syncUrl) self.startCouchSync();
 
-                    // Start RxForge sync if token is configured
-                    self.rxforgeToken = getRxForgeToken();
-                    if (self.rxforgeToken) self.connectRxForge();
+                    // Start RxForge sync if OAuth token is present
+                    if (rxforgeHasToken()) self.connectRxForge();
 
                     // Google Drive: intelligenter Sync beim Start (vergleicht Zeitstempel)
                     if (self.gdriveToken && self.isChrome) {
@@ -1800,14 +1946,17 @@ document.addEventListener('alpine:init', function () {
             },
 
             // ===== RxForge Sync =====
+            rxforgeOAuthStart: function () {
+                rxforgeOAuthConnect();
+            },
+
             connectRxForge: function () {
                 var self = this;
-                var token = this.rxforgeToken.trim();
-                if (!token) return;
-                setRxForgeToken(token);
+                if (!rxforgeHasToken()) return;
+                this.rxforgeConnected = true;
                 this.rxforgeStatus = 'active';
                 this.rxforgeError = '';
-                startRxForgeSync(token, {
+                startRxForgeSync({
                     onActive: function () { self.rxforgeStatus = 'active'; },
                     onPaused: function (err) {
                         self.rxforgeStatus = err ? 'error' : 'paused';
@@ -1824,11 +1973,20 @@ document.addEventListener('alpine:init', function () {
 
             disconnectRxForge: function () {
                 stopRxForgeSync();
-                setRxForgeToken('');
-                rxforgeJwt = null;
-                rxforgeJwtExpires = 0;
+                var token = localStorage.getItem(RXFORGE_ACCESS_KEY);
+                if (token) {
+                    fetch(RXFORGE_BASE + '/oauth/revoke', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ token: token, client_id: RXFORGE_CLIENT_ID })
+                    }).catch(function () {});
+                }
+                localStorage.removeItem(RXFORGE_ACCESS_KEY);
+                localStorage.removeItem(RXFORGE_REFRESH_KEY);
+                localStorage.removeItem(RXFORGE_EXPIRES_KEY);
                 localStorage.removeItem(RXFORGE_CHECKPOINT_KEY);
-                this.rxforgeToken = '';
+                localStorage.removeItem(RXFORGE_MASTER_CACHE_KEY);
+                this.rxforgeConnected = false;
                 this.rxforgeStatus = 'disconnected';
                 this.rxforgeError = '';
                 this.toast('RxForge getrennt', 'info');
