@@ -205,8 +205,8 @@ document.addEventListener('alpine:init', function () {
 
             return fetch(RXFORGE_BASE + '/oauth/token', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ grant_type: 'refresh_token', client_id: RXFORGE_CLIENT_ID, refresh_token: refresh })
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ grant_type: 'refresh_token', client_id: RXFORGE_CLIENT_ID, refresh_token: refresh }).toString()
             }).then(function (r) { return r.ok ? r.json() : null; })
             .then(function (data) {
                 if (!data || !data.access_token) return token;
@@ -275,14 +275,14 @@ document.addEventListener('alpine:init', function () {
 
             return fetch(RXFORGE_BASE + '/oauth/token', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
                     grant_type:    'authorization_code',
                     client_id:     RXFORGE_CLIENT_ID,
                     code:          code,
                     code_verifier: verifier,
                     redirect_uri:  window.location.origin
-                })
+                }).toString()
             }).then(function (r) {
                 if (!r.ok) throw new Error('OAuth Token-Austausch fehlgeschlagen: ' + r.status);
                 return r.json();
@@ -1977,8 +1977,8 @@ document.addEventListener('alpine:init', function () {
                 if (token) {
                     fetch(RXFORGE_BASE + '/oauth/revoke', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ token: token, client_id: RXFORGE_CLIENT_ID })
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({ token: token, client_id: RXFORGE_CLIENT_ID }).toString()
                     }).catch(function () {});
                 }
                 localStorage.removeItem(RXFORGE_ACCESS_KEY);
