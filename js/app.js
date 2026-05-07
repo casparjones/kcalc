@@ -717,7 +717,7 @@ document.addEventListener('alpine:init', function () {
         return {
             // ===== State =====
             view: 'form',  // 'form' or 'saved'
-            form: { name: '', gewicht: '', groesse: '', alter: '', geschlecht: 'm', formel: 'harris', anpassung: 'n' },
+            form: { name: '', gewicht: '', groesse: '', alter: '', geschlecht: 'm', formel: 'harris', anpassung: 'n', zielgewicht: '' },
             palRows: [{ tat: '0.95', zeit: '8:00', faktor: '0.95', sum: '0.00', readonly: true }],
             grundumsatz: 0,
             summe24: '0.00',
@@ -760,7 +760,7 @@ document.addEventListener('alpine:init', function () {
             rxforgeStatus: 'disconnected',
             rxforgeError: '',
 
-            // ===== Google Drive Sync State =====
+            // ===== Google Drive Backup State =====
             isChrome: /Chrome/.test(navigator.userAgent) && !/Edg/.test(navigator.userAgent),
             gdriveToken: localStorage.getItem('kcalc_gdrive_token') || '',
             gdriveTokenExpires: parseInt(localStorage.getItem('kcalc_gdrive_token_expires') || '0', 10),
@@ -814,10 +814,6 @@ document.addEventListener('alpine:init', function () {
                     // Start RxForge sync if OAuth token is present
                     if (rxforgeHasToken()) self.connectRxForge();
 
-                    // Google Drive: intelligenter Sync beim Start (vergleicht Zeitstempel)
-                    if (self.gdriveToken && self.isChrome) {
-                        self.gdriveAutoSync();
-                    }
                 }).catch(function (err) {
                     console.error('RxDB init error:', err);
                     self.view = 'form';
@@ -913,6 +909,32 @@ document.addEventListener('alpine:init', function () {
             },
             get bmiInfo() { return Calc.bmiInfo(this.bmi); },
 
+            get calculatedTargetWeight() {
+                var h = parseFloat(this.form.groesse) || 0;
+                if (!h) return 0;
+                var meters = h / 100;
+                return Math.round(25 * meters * meters * 10) / 10;
+            },
+
+            get targetWeight() {
+                var saved = parseFloat(this.form.zielgewicht);
+                return saved > 0 ? saved : this.calculatedTargetWeight;
+            },
+
+            get weightProgress() {
+                var start = this.startWeight || this.currentWeight;
+                var current = this.currentWeight;
+                var target = this.targetWeight;
+                var automatic = !(parseFloat(this.form.zielgewicht) > 0);
+                if (!start || !current || !target) return { percent: 0, done: 0, remaining: 1, target: target, automatic: automatic };
+                var total = Math.abs(start - target);
+                if (total < 0.1) return { percent: 100, done: 1, remaining: 0, target: target, automatic: automatic };
+                var rawDone = target < start ? start - current : current - start;
+                var done = Math.max(0, Math.min(total, rawDone));
+                var ratio = done / total;
+                return { percent: Math.round(ratio * 100), done: ratio, remaining: 1 - ratio, target: target, automatic: automatic };
+            },
+
             // ===== Diet Goals =====
             get loseCalories() { return this.gesamtumsatz - this.tempo; },
             get maintainCalories() { return this.gesamtumsatz; },
@@ -934,14 +956,11 @@ document.addEventListener('alpine:init', function () {
 
             saveDietGoal: function () {
                 this.goalSaved = true;
-                var self = this;
                 var profileData = this.profiles[this.activeProfile];
                 if (profileData && profileData.profile) {
                     profileData.profile.tempo = this.tempo;
                     profileData.profile.activeGoal = this.activeGoal;
-                    saveProfileToDB(this.activeProfile, profileData.profile).then(function () {
-                        if (self.gdriveToken) self.gdriveSyncUp();
-                    });
+                    saveProfileToDB(this.activeProfile, profileData.profile);
                     this.toast('Diätziel gespeichert', 'success');
                 }
             },
@@ -1099,6 +1118,7 @@ document.addEventListener('alpine:init', function () {
                     this.form.geschlecht = pd.profile.geschlecht || 'm';
                     this.form.formel = pd.profile.formel || 'harris';
                     this.form.anpassung = pd.profile.anpassung || 'n';
+                    this.form.zielgewicht = pd.profile.zielgewicht || '';
                     this.form.savedAt = pd.profile.savedAt || '';
                     // Diätziel laden
                     if (pd.profile.tempo) {
@@ -1127,6 +1147,7 @@ document.addEventListener('alpine:init', function () {
                 var profileData = {
                     gewicht: this.form.gewicht, groesse: this.form.groesse, alter: this.form.alter,
                     geschlecht: this.form.geschlecht, formel: this.form.formel, anpassung: this.form.anpassung,
+                    zielgewicht: this.form.zielgewicht,
                     grundumsatz: String(this.grundumsatz), pal: this.palValue,
                     leistungsumsatz: String(this.leistungsumsatz), gesamtumsatz: String(this.gesamtumsatz),
                     savedAt: new Date().toISOString()
@@ -1171,11 +1192,30 @@ document.addEventListener('alpine:init', function () {
 
             newProfile: function () {
                 this.dropdownOpen = false;
-                this.form = { name: '', gewicht: '', groesse: '', alter: '', geschlecht: 'm', formel: 'harris', anpassung: 'n' };
+                this.form = { name: '', gewicht: '', groesse: '', alter: '', geschlecht: 'm', formel: 'harris', anpassung: 'n', zielgewicht: '' };
                 this.palRows = [{ tat: '0.95', zeit: '8:00', faktor: '0.95', sum: '0.00', readonly: true }];
                 this.grundumsatz = 0; this.gesamtumsatz = 0; this.leistungsumsatz = 0;
                 this.weightHistory = [];
                 this.view = 'form';
+            },
+
+            saveTargetWeight: function () {
+                if (!this.activeProfile || !this.profiles[this.activeProfile]) {
+                    this.toast('Kein Profil ausgewählt', 'warn');
+                    return;
+                }
+                var value = parseFloat(this.form.zielgewicht);
+                if (this.form.zielgewicht !== '' && (!value || value < 1 || value > 400)) {
+                    this.toast('Bitte ein gültiges Zielgewicht eingeben', 'warn');
+                    return;
+                }
+                var profileData = this.profiles[this.activeProfile].profile || {};
+                profileData.zielgewicht = value > 0 ? String(value) : '';
+                profileData.savedAt = new Date().toISOString();
+                this.form.zielgewicht = profileData.zielgewicht;
+                this.profiles[this.activeProfile].profile = profileData;
+                saveProfileToDB(this.activeProfile, profileData);
+                this.toast(profileData.zielgewicht ? 'Zielgewicht gespeichert' : 'Automatisches Zielgewicht aktiv', 'success');
             },
 
             deleteProfile: function () {
@@ -1218,7 +1258,7 @@ document.addEventListener('alpine:init', function () {
                 var wh = (data.weightHistory || []).slice().sort(function (a, b) { return b.date.localeCompare(a.date); }).slice(0, this.shareLimit);
                 var payload = {
                     n: this.activeProfile,
-                    p: { g: p.gewicht, gr: p.groesse, a: p.alter, s: p.geschlecht, f: p.formel, an: p.anpassung, gu: p.grundumsatz, pl: p.pal, lu: p.leistungsumsatz, ge: p.gesamtumsatz, sa: p.savedAt },
+                    p: { g: p.gewicht, gr: p.groesse, a: p.alter, s: p.geschlecht, f: p.formel, an: p.anpassung, z: p.zielgewicht, gu: p.grundumsatz, pl: p.pal, lu: p.leistungsumsatz, ge: p.gesamtumsatz, sa: p.savedAt },
                     w: wh.map(function (e) { return { d: e.date, w: e.weight }; })
                 };
                 return window.location.origin + window.location.pathname + '?d=' + btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
@@ -1256,14 +1296,15 @@ document.addEventListener('alpine:init', function () {
                     var oldestAll = hasHistory ? this.weightHistory.slice().sort(function (a, b) { return a.date.localeCompare(b.date); }) : [];
                     var startId = oldestAll.length > 0 ? oldestAll[0].id : null;
 
+                    var progress = this.weightProgress;
+                    var targetLabel = progress.target ? progress.target.toFixed(1) + ' kg' : '\u2013';
                     var items = [
-                        { label: 'Gewicht', value: this.currentWeight ? this.currentWeight.toFixed(1) + ' kg' : '\u2013' },
-                        { label: 'Gr\u00f6\u00dfe', value: this.form.groesse ? this.form.groesse + ' cm' : '\u2013' },
-                        { label: 'Alter', value: this.form.alter ? this.form.alter + ' Jahre' : '\u2013' },
                         { label: 'BMI', value: this.bmi ? this.bmi.toFixed(1) : '\u2013' },
                         { label: 'Grundumsatz', value: this.grundumsatz ? this.grundumsatz.toLocaleString('de-DE') + ' kcal' : '\u2013' },
                         { label: 'Leistungsumsatz', value: this.leistungsumsatz ? this.leistungsumsatz.toLocaleString('de-DE') + ' kcal' : '\u2013' },
-                        { label: 'Gesamtumsatz', value: this.gesamtumsatz ? this.gesamtumsatz.toLocaleString('de-DE') + ' kcal' : '\u2013' }
+                        { label: 'Gesamtumsatz', value: this.gesamtumsatz ? this.gesamtumsatz.toLocaleString('de-DE') + ' kcal' : '\u2013' },
+                        { label: 'Gr\u00f6\u00dfe', value: this.form.groesse ? this.form.groesse + ' cm' : '\u2013' },
+                        { label: 'Alter', value: this.form.alter ? this.form.alter + ' Jahre' : '\u2013' }
                     ];
 
                     // Use a generous max height, trim to actual content at the end
@@ -1304,9 +1345,48 @@ document.addEventListener('alpine:init', function () {
                     ctx.fillStyle = 'rgba(255,255,255,0.75)';
                     ctx.fillText(new Date().toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' }), W / 2, 135);
 
+                    // === WEIGHT HERO ===
+                    var heroY = headerH;
+                    var heroH = 260;
+                    ctx.fillStyle = '#f8fbf9';
+                    ctx.fillRect(0, heroY, W, heroH);
+
+                    var centerX = W / 2;
+                    var centerY = heroY + 118;
+                    var radius = 63;
+                    ctx.lineWidth = 12;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.strokeStyle = '#e74c3c';
+                    ctx.arc(centerX, centerY, radius, -Math.PI / 2, Math.PI * 1.5);
+                    ctx.stroke();
+
+                    if (progress.done > 0) {
+                        ctx.beginPath();
+                        ctx.strokeStyle = '#27ae60';
+                        ctx.arc(centerX, centerY, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress.done);
+                        ctx.stroke();
+                    }
+
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = '#27ae60';
+                    ctx.font = '700 18px ' + font;
+                    ctx.fillText(progress.percent + '%', centerX, centerY - 41);
+
+                    ctx.fillStyle = '#1f2d3d';
+                    ctx.font = '800 34px ' + font;
+                    ctx.fillText(this.currentWeight ? this.currentWeight.toFixed(1) : '\u2013', centerX, centerY + 5);
+                    ctx.fillStyle = '#6b7c86';
+                    ctx.font = '600 14px ' + font;
+                    ctx.fillText('kg', centerX, centerY + 25);
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = '600 16px ' + font;
+                    ctx.fillText('Zielgewicht: ' + targetLabel + (progress.automatic ? ' (BMI 25)' : ''), centerX, heroY + 220);
+
                     // === DATA GRID ===
-                    var gy = headerH;
-                    var gridRows = Math.ceil(items.length / 3);
+                    var gy = heroY + heroH;
+                    var gridRows = 2;
                     var colW = (W - 2) / 3;
                     items.forEach(function (item, i) {
                         var col = i % 3;
@@ -1331,16 +1411,6 @@ document.addEventListener('alpine:init', function () {
                         ctx.font = '700 26px ' + font;
                         ctx.fillText(item.value, x + colW / 2, cy + 62);
                     });
-                    // If last row has fewer than 3 items, fill remaining with white
-                    var lastRowItems = items.length % 3;
-                    if (lastRowItems > 0) {
-                        var lastRow = Math.floor(items.length / 3);
-                        for (var fi = lastRowItems; fi < 3; fi++) {
-                            ctx.fillStyle = '#ffffff';
-                            ctx.fillRect(fi * (colW + 1), gy + lastRow * 81, colW, 80);
-                        }
-                    }
-
                     var curY = gy + gridRows * 81;
 
                     // === WEIGHT CHART ===
@@ -1510,7 +1580,7 @@ document.addEventListener('alpine:init', function () {
                 try {
                     var raw = JSON.parse(decodeURIComponent(escape(atob(enc))));
                     var r = { name: raw.n || '', weightHistory: [] };
-                    if (raw.p) r.profile = { gewicht: raw.p.g, groesse: raw.p.gr, alter: raw.p.a, geschlecht: raw.p.s, formel: raw.p.f, anpassung: raw.p.an, grundumsatz: raw.p.gu, pal: raw.p.pl, leistungsumsatz: raw.p.lu, gesamtumsatz: raw.p.ge, savedAt: raw.p.sa };
+                    if (raw.p) r.profile = { gewicht: raw.p.g, groesse: raw.p.gr, alter: raw.p.a, geschlecht: raw.p.s, formel: raw.p.f, anpassung: raw.p.an, zielgewicht: raw.p.z, grundumsatz: raw.p.gu, pal: raw.p.pl, leistungsumsatz: raw.p.lu, gesamtumsatz: raw.p.ge, savedAt: raw.p.sa };
                     if (raw.w) r.weightHistory = raw.w.map(function (e, i) { return { date: e.d, weight: e.w, id: i + 1 }; });
                     return r;
                 } catch (e) { return null; }
@@ -1565,6 +1635,7 @@ document.addEventListener('alpine:init', function () {
                         this.form.geschlecht = shared.profile.geschlecht || 'm';
                         this.form.formel = shared.profile.formel || 'harris';
                         this.form.anpassung = shared.profile.anpassung || 'n';
+                        this.form.zielgewicht = shared.profile.zielgewicht || '';
                         this.form.savedAt = shared.profile.savedAt || '';
                         this.grundumsatz = parseInt(shared.profile.grundumsatz) || 0;
                         this.gesamtumsatz = parseInt(shared.profile.gesamtumsatz) || 0;
@@ -2016,6 +2087,7 @@ document.addEventListener('alpine:init', function () {
                             self.form.geschlecht = pd.profile.geschlecht || self.form.geschlecht;
                             self.form.formel = pd.profile.formel || self.form.formel;
                             self.form.anpassung = pd.profile.anpassung || self.form.anpassung;
+                            self.form.zielgewicht = pd.profile.zielgewicht || self.form.zielgewicht;
                             self.form.savedAt = pd.profile.savedAt || self.form.savedAt;
                         }
                         self.recalculate();
@@ -2034,7 +2106,7 @@ document.addEventListener('alpine:init', function () {
                 return colors[this.syncStatus] || 'gray';
             },
 
-            // ===== Google Drive Sync =====
+            // ===== Google Drive Backup =====
             gdriveInitTokenClient: function (callback) {
                 var self = this;
                 if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
@@ -2189,77 +2261,6 @@ document.addEventListener('alpine:init', function () {
                 return buildExportData();
             },
 
-            // Neuesten lokalen Zeitstempel ermitteln (savedAt der Profile)
-            gdriveLocalTimestamp: function () {
-                var latest = '';
-                var names = Object.keys(this.profiles);
-                for (var i = 0; i < names.length; i++) {
-                    var p = this.profiles[names[i]];
-                    if (p && p.profile && p.profile.savedAt && p.profile.savedAt > latest) {
-                        latest = p.profile.savedAt;
-                    }
-                }
-                return latest;
-            },
-
-            // Intelligenter Sync: vergleicht lokale und remote Zeitstempel
-            gdriveAutoSync: function () {
-                var self = this;
-                if (!this.gdriveToken) return;
-                this.gdriveSyncing = true;
-
-                this.gdriveEnsureToken().then(function (token) {
-                    return self.gdriveFindFile(token).then(function (file) {
-                        if (!file) {
-                            // Keine Daten in Drive → hochladen
-                            console.log('[GDrive Sync] Keine Remote-Datei, starte Upload');
-                            return self.gdriveExportData().then(function (data) {
-                                return self.gdriveUploadFile(token, null, data);
-                            }).then(function () { return 'up'; });
-                        }
-
-                        var remoteTime = new Date(file.modifiedTime).getTime();
-                        var localTime = new Date(self.gdriveLocalTimestamp() || 0).getTime();
-
-                        console.log('[GDrive Sync] Remote:', new Date(remoteTime).toISOString(), '| Lokal:', new Date(localTime).toISOString());
-
-                        if (localTime >= remoteTime) {
-                            // Lokal ist neuer oder gleich → hochladen
-                            console.log('[GDrive Sync] Lokal neuer → Upload');
-                            return self.gdriveExportData().then(function (data) {
-                                return self.gdriveUploadFile(token, file.id, data);
-                            }).then(function () { return 'up'; });
-                        } else {
-                            // Remote ist neuer → herunterladen
-                            console.log('[GDrive Sync] Remote neuer → Download');
-                            return self.gdriveDownloadFile(token, file.id).then(function (data) {
-                                if (data && data.version && data.profiles) {
-                                    self.executeImport(data);
-                                    return 'down';
-                                }
-                                return 'skip';
-                            });
-                        }
-                    });
-                }).then(function (direction) {
-                    var now = new Date().toISOString();
-                    self.gdriveLastSync = now;
-                    localStorage.setItem('kcalc_gdrive_last_sync', now);
-                    if (direction === 'up') {
-                        self.toast('Google Drive aktualisiert', 'success');
-                    } else if (direction === 'down') {
-                        self.toast('Neuere Daten von Google Drive geladen', 'success');
-                    }
-                }).catch(function (err) {
-                    if (err.message !== 'TOKEN_EXPIRED') {
-                        console.error('Google Drive sync error:', err);
-                        self.toast('Sync-Fehler: ' + err.message, 'error');
-                    }
-                }).finally(function () {
-                    self.gdriveSyncing = false;
-                });
-            },
-
             gdriveSyncUp: function () {
                 var self = this;
                 if (!this.gdriveToken) { this.toast('Nicht mit Google verbunden', 'warn'); return; }
@@ -2275,10 +2276,10 @@ document.addEventListener('alpine:init', function () {
                     var now = new Date().toISOString();
                     self.gdriveLastSync = now;
                     localStorage.setItem('kcalc_gdrive_last_sync', now);
-                    self.toast('Daten zu Google Drive hochgeladen', 'success');
+                    self.toast('Backup zu Google Drive hochgeladen', 'success');
                 }).catch(function (err) {
                     if (err.message !== 'TOKEN_EXPIRED') {
-                        console.error('Google Drive upload error:', err);
+                        console.error('Google Drive backup upload error:', err);
                         self.toast('Upload-Fehler: ' + err.message, 'error');
                     }
                 }).finally(function () {
@@ -2309,10 +2310,10 @@ document.addEventListener('alpine:init', function () {
                     var now = new Date().toISOString();
                     self.gdriveLastSync = now;
                     localStorage.setItem('kcalc_gdrive_last_sync', now);
-                    self.toast('Daten von Google Drive geladen', 'success');
+                    self.toast('Backup von Google Drive geladen', 'success');
                 }).catch(function (err) {
                     if (err.message !== 'TOKEN_EXPIRED') {
-                        console.error('Google Drive download error:', err);
+                        console.error('Google Drive backup download error:', err);
                         self.toast('Download-Fehler: ' + err.message, 'error');
                     }
                 }).finally(function () {
@@ -2321,7 +2322,7 @@ document.addEventListener('alpine:init', function () {
             },
 
             get gdriveStatusText() {
-                if (this.gdriveSyncing) return 'Synchronisiere...';
+                if (this.gdriveSyncing) return 'Backup läuft...';
                 if (this.gdriveToken) return 'Verbunden';
                 return 'Nicht verbunden';
             },

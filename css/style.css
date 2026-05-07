@@ -1488,7 +1488,14 @@ h3 { font-size: var(--font-size-xl); }
     display: flex;
     gap: var(--spacing-sm);
     margin-bottom: var(--spacing-md);
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+}
+
+.gdrive-actions .btn {
+    flex: 1 1 0;
+    width: auto;
+    padding-left: var(--spacing-md);
+    padding-right: var(--spacing-md);
 }
 
 .gdrive-last-sync {

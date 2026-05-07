@@ -28,8 +28,26 @@ var WeightChart = {
 
         var data = history.slice().sort(function (a, b) { return a.date.localeCompare(b.date); });
         var weights = data.map(function (e) { return e.weight; });
-        var minW = Math.floor(Math.min.apply(null, weights) - 2);
-        var maxW = Math.ceil(Math.max.apply(null, weights) + 2);
+        var trend = null;
+        if (data.length > 1) {
+            var sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+            data.forEach(function (e, idx) {
+                sumX += idx;
+                sumY += e.weight;
+                sumXY += idx * e.weight;
+                sumX2 += idx * idx;
+            });
+            var n = data.length;
+            var denominator = n * sumX2 - sumX * sumX;
+            if (denominator !== 0) {
+                var slope = (n * sumXY - sumX * sumY) / denominator;
+                var intercept = (sumY - slope * sumX) / n;
+                trend = data.map(function (e, idx) { return slope * idx + intercept; });
+            }
+        }
+        var scaleWeights = trend ? weights.concat(trend) : weights;
+        var minW = Math.floor(Math.min.apply(null, scaleWeights) - 2);
+        var maxW = Math.ceil(Math.max.apply(null, scaleWeights) + 2);
         if (minW === maxW) { minW -= 2; maxW += 2; }
         var chartW = w - pad.left - pad.right;
         var chartH = h - pad.top - pad.bottom;
@@ -73,6 +91,28 @@ var WeightChart = {
             idx === 0 ? ctx.moveTo(x, yp) : ctx.lineTo(x, yp);
         });
         ctx.stroke();
+
+        // Linear regression trend line
+        if (trend) {
+            ctx.save();
+            ctx.strokeStyle = '#b8c2cc';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([7, 5]);
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            trend.forEach(function (wt, idx) {
+                var x = xPos(idx), yp = yPos(wt);
+                idx === 0 ? ctx.moveTo(x, yp) : ctx.lineTo(x, yp);
+            });
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            ctx.fillStyle = '#9aa6b2';
+            ctx.font = '11px "Segoe UI", sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText('Trend', w - pad.right, pad.top - 10);
+            ctx.restore();
+        }
 
         // Points + labels
         data.forEach(function (e, idx) {

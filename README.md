@@ -83,9 +83,9 @@ open http://kcalc.docksal.site
 
 ## Self-Hosting
 
-### Google Drive Sync
+### Google Drive Backup
 
-Der Google Drive Sync benötigt eine eigene OAuth Client ID aus der [Google Cloud Console](https://console.cloud.google.com/):
+Das Google Drive Backup benötigt eine eigene OAuth Client ID aus der [Google Cloud Console](https://console.cloud.google.com/):
 
 1. Neues Projekt erstellen (oder bestehendes nutzen)
 2. Google Drive API aktivieren

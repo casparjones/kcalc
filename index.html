@@ -499,6 +499,14 @@
                         <button class="overlay-close" @click="settingsOpen = false">&times;</button>
                     </div>
 
+                    <div class="settings-section" x-show="activeProfile" x-cloak>
+                        <h4 class="settings-section-title">Profil</h4>
+                        <label class="settings-label" for="targetWeightInput">Zielgewicht</label>
+                        <input type="number" id="targetWeightInput" class="settings-input" x-model="form.zielgewicht" min="1" max="400" step="0.1" :placeholder="calculatedTargetWeight ? calculatedTargetWeight.toFixed(1) + ' kg (BMI 25)' : 'BMI 25 automatisch'">
+                        <p class="settings-hint">Leer lassen, um automatisch das Gewicht bei BMI 25 zu verwenden.</p>
+                        <button type="button" class="btn btn-primary btn-small" @click="saveTargetWeight()">Zielgewicht speichern</button>
+                    </div>
+
                     <div class="settings-section">
                         <h4 class="settings-section-title">Sync</h4>
 
@@ -535,7 +543,7 @@
 
                         <!-- Google Drive Tab (Chrome only) -->
                         <div x-show="settingsTab === 'gdrive' && isChrome">
-                            <p>Sichere deine Daten in deinem Google Drive AppData-Ordner. Nur manueller Sync per Button.</p>
+                            <p>Sichere deine Daten als Backup in deinem Google Drive AppData-Ordner.</p>
 
                             <div class="gdrive-status-bar">
                                 <span class="sync-dot sync-dot--lg" :class="'sync-dot--' + gdriveStatusColor"></span>
@@ -556,15 +564,15 @@
                                 <div class="gdrive-connected">
                                     <div class="gdrive-actions">
                                         <button type="button" class="btn btn-primary btn-small" @click="gdriveSyncUp()" :disabled="gdriveSyncing">
-                                            <span x-show="!gdriveSyncing">Zu Drive hochladen</span>
-                                            <span x-show="gdriveSyncing">Synchronisiere...</span>
+                                            <span x-show="!gdriveSyncing">Upload</span>
+                                            <span x-show="gdriveSyncing">Bitte warten...</span>
                                         </button>
                                         <button type="button" class="btn btn-secondary btn-small" @click="gdriveSyncDown()" :disabled="gdriveSyncing">
-                                            <span x-show="!gdriveSyncing">Von Drive laden</span>
-                                            <span x-show="gdriveSyncing">Synchronisiere...</span>
+                                            <span x-show="!gdriveSyncing">Download</span>
+                                            <span x-show="gdriveSyncing">Bitte warten...</span>
                                         </button>
                                     </div>
-                                    <p class="settings-hint gdrive-last-sync" x-show="gdriveLastSync" x-text="'Letzter Sync: ' + fmtDate(gdriveLastSync)"></p>
+                                    <p class="settings-hint gdrive-last-sync" x-show="gdriveLastSync" x-text="'Letztes Backup: ' + fmtDate(gdriveLastSync)"></p>
                                     <button type="button" class="btn btn-secondary btn-small btn-disconnect" @click="gdriveDisconnect()">Google trennen</button>
                                 </div>
                             </template>
