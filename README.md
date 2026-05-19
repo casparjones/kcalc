@@ -21,7 +21,7 @@ Ein moderner, browserbasierter Kalorienbedarf-Rechner als statische GitHub Pages
 - Export/Import als JSON-Backup
 - CouchDB Live-Sync via Connection String
 - Google Drive AppData Sync (nur Chrome)
-- Komplett clientseitig - keine Serveranbindung, Daten in IndexedDB (PouchDB)
+- Komplett clientseitig - keine Serveranbindung, Daten in IndexedDB (RxDB + Dexie)
 - Deutsche Benutzeroberfläche
 
 ## Tech-Stack
@@ -32,7 +32,8 @@ Ein moderner, browserbasierter Kalorienbedarf-Rechner als statische GitHub Pages
 - **[Toastify.js](https://apvarun.github.io/toastify-js/)** - Toast-Benachrichtigungen (CDN)
 - **Canvas API** - Gewichtsverlauf-Diagramm
 - **SVG** - Makronährstoff-Kreisdiagramm
-- **[PouchDB](https://pouchdb.com/)** - Lokale Datenpersistenz (IndexedDB) mit optionalem CouchDB-Sync
+- **[RxDB](https://rxdb.info/)** (v15, Storage: Dexie) - Lokale Datenpersistenz (IndexedDB) mit reaktiven Queries
+- **[RxForge](https://rxforge.de)** - Cloud-Sync via OAuth 2.0 (PKCE) und RxDB-Protokoll
 - **Docksal** - Lokale Entwicklungsumgebung
 - **GitHub Pages** - Hosting
 
