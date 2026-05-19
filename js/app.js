@@ -181,9 +181,10 @@ document.addEventListener('alpine:init', function () {
         var RXFORGE_BASE      = 'https://rxforge.de';
         var RXFORGE_CLIENT_ID = 'rxf_d1863d3a6fa94566';
 
-        var rxforgeSseSource   = null;
-        var rxforgeTimers      = [];
-        var rxforgeSyncRunning = false;
+        var rxforgeSseSource    = null;
+        var rxforgeTimers       = [];
+        var rxforgeSyncRunning  = false;
+        var rxforgeRefreshPromise = null;
 
         // --- OAuth helpers ---
 
@@ -191,30 +192,40 @@ document.addEventListener('alpine:init', function () {
             return !!localStorage.getItem(RXFORGE_ACCESS_KEY);
         }
 
-        /** Returns a valid access_token, refreshing via refresh_token if needed. */
+        /** Returns a valid access_token, refreshing via refresh_token if needed.
+         *  Coalesces parallel refresh calls into one request.
+         *  Throws Error('TOKEN_EXPIRED') and clears storage when refresh fails. */
         function rxforgeGetValidToken() {
             var token     = localStorage.getItem(RXFORGE_ACCESS_KEY) || '';
             var expiresAt = parseInt(localStorage.getItem(RXFORGE_EXPIRES_KEY) || '0', 10);
             var refresh   = localStorage.getItem(RXFORGE_REFRESH_KEY) || '';
-            var fiveMin   = 5 * 60 * 1000;
 
-            if (token && expiresAt && expiresAt - Date.now() > fiveMin) {
+            if (token && expiresAt && expiresAt - Date.now() > 60000) {
                 return Promise.resolve(token);
             }
-            if (!refresh) return Promise.resolve(token);
+            if (!refresh) return Promise.reject(new Error('TOKEN_EXPIRED'));
 
-            return fetch(RXFORGE_BASE + '/oauth/token', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({ grant_type: 'refresh_token', client_id: RXFORGE_CLIENT_ID, refresh_token: refresh }).toString()
-            }).then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (data) {
-                if (!data || !data.access_token) return token;
-                localStorage.setItem(RXFORGE_ACCESS_KEY, data.access_token);
-                if (data.refresh_token) localStorage.setItem(RXFORGE_REFRESH_KEY, data.refresh_token);
-                if (data.expires_in)    localStorage.setItem(RXFORGE_EXPIRES_KEY, String(Date.now() + data.expires_in * 1000));
-                return data.access_token;
-            }).catch(function () { return token; });
+            if (!rxforgeRefreshPromise) {
+                rxforgeRefreshPromise = fetch(RXFORGE_BASE + '/oauth/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ grant_type: 'refresh_token', client_id: RXFORGE_CLIENT_ID, refresh_token: refresh }).toString()
+                }).then(function (r) {
+                    if (!r.ok) {
+                        localStorage.removeItem(RXFORGE_ACCESS_KEY);
+                        localStorage.removeItem(RXFORGE_REFRESH_KEY);
+                        localStorage.removeItem(RXFORGE_EXPIRES_KEY);
+                        throw new Error('TOKEN_EXPIRED');
+                    }
+                    return r.json();
+                }).then(function (data) {
+                    localStorage.setItem(RXFORGE_ACCESS_KEY, data.access_token);
+                    if (data.refresh_token) localStorage.setItem(RXFORGE_REFRESH_KEY, data.refresh_token);
+                    localStorage.setItem(RXFORGE_EXPIRES_KEY, String(Date.now() + data.expires_in * 1000));
+                    return data.access_token;
+                }).finally(function () { rxforgeRefreshPromise = null; });
+            }
+            return rxforgeRefreshPromise;
         }
 
         function rxforgeGenerateCodeVerifier() {
@@ -316,6 +327,7 @@ document.addEventListener('alpine:init', function () {
 
                 return fetch(url, { headers: { 'Authorization': 'Bearer ' + token } })
                     .then(function (r) {
+                        if (r.status === 401 || r.status === 403) throw new Error('TOKEN_EXPIRED');
                         if (!r.ok) throw new Error('RxForge Pull fehlgeschlagen: ' + r.status);
                         return r.json();
                     }).then(function (data) {
@@ -390,6 +402,7 @@ document.addEventListener('alpine:init', function () {
                         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
                         body: JSON.stringify({ rows: rows })
                     }).then(function (r) {
+                        if (r.status === 401 || r.status === 403) throw new Error('TOKEN_EXPIRED');
                         if (!r.ok) throw new Error('RxForge Push fehlgeschlagen: ' + r.status);
                         return r.json();
                     }).then(function (data) {
@@ -2031,12 +2044,22 @@ document.addEventListener('alpine:init', function () {
                     onActive: function () { self.rxforgeStatus = 'active'; },
                     onPaused: function (err) {
                         self.rxforgeStatus = err ? 'error' : 'paused';
-                        if (err) self.rxforgeError = err.message || 'Verbindungsproblem';
+                        if (err) {
+                            if (err.message === 'TOKEN_EXPIRED') {
+                                self.rxforgeHandleSessionExpired();
+                            } else {
+                                self.rxforgeError = err.message || 'Verbindungsproblem';
+                            }
+                        }
                     },
                     onChange: function () { self.reloadFromDB(); },
                     onError: function (err) {
-                        self.rxforgeStatus = 'error';
-                        self.rxforgeError = (err && err.message) || 'Sync-Fehler';
+                        if (err && err.message === 'TOKEN_EXPIRED') {
+                            self.rxforgeHandleSessionExpired();
+                        } else {
+                            self.rxforgeStatus = 'error';
+                            self.rxforgeError = (err && err.message) || 'Sync-Fehler';
+                        }
                     }
                 });
                 this.toast('RxForge Sync gestartet', 'success');
@@ -2063,9 +2086,21 @@ document.addEventListener('alpine:init', function () {
                 this.toast('RxForge getrennt', 'info');
             },
 
+            rxforgeHandleSessionExpired: function () {
+                stopRxForgeSync();
+                localStorage.removeItem(RXFORGE_ACCESS_KEY);
+                localStorage.removeItem(RXFORGE_REFRESH_KEY);
+                localStorage.removeItem(RXFORGE_EXPIRES_KEY);
+                this.rxforgeConnected = false;
+                this.rxforgeStatus = 'disconnected';
+                this.rxforgeError = '';
+                this.toast('RxForge: Sitzung abgelaufen – bitte neu anmelden', 'warn');
+            },
+
             get rxforgeStatusText() {
                 var labels = { disconnected: 'Nicht verbunden', active: 'Synchronisiert...', paused: 'Verbunden', error: 'Fehler' };
-                return labels[this.rxforgeStatus] || 'Nicht verbunden';
+                var base = labels[this.rxforgeStatus] || 'Nicht verbunden';
+                return (this.rxforgeStatus === 'error' && this.rxforgeError) ? base + ': ' + this.rxforgeError : base;
             },
 
             get rxforgeStatusColor() {
