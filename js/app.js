@@ -16,6 +16,28 @@ document.addEventListener('alpine:init', function () {
         var SYNC_SEQ_KEY = 'kcalc_couch_seq';
         var syncTimers = [];
         var syncRunning = false;
+        var couchPushNow = null;     // von startSync gesetzt: löst einen sofortigen CouchDB-Push aus
+        var reactivePushTimer = null; // Debounce-Timer für reaktives Pushen
+
+        // Reaktiv pushen: nach lokalen Änderungen (anlegen/ändern/löschen) sofort
+        // synchronisieren, statt bis zum 30s-Intervall zu warten. Debounced, damit
+        // mehrere schnelle Änderungen zu einem Push zusammengefasst werden.
+        function requestReactivePush() {
+            if (reactivePushTimer) clearTimeout(reactivePushTimer);
+            reactivePushTimer = setTimeout(function () {
+                reactivePushTimer = null;
+                if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+                // RxForge: rxforgePush() ist eigenständig und enthält die Löscherkennung
+                if (rxforgeHasToken() && !rxforgeSyncRunning) {
+                    rxforgeSyncRunning = true;
+                    rxforgePush()
+                        .then(function () { rxforgeSyncRunning = false; })
+                        .catch(function (e) { rxforgeSyncRunning = false; console.error('Reaktiver RxForge-Push fehlgeschlagen:', e); });
+                }
+                // CouchDB
+                if (couchPushNow) couchPushNow();
+            }, 500);
+        }
 
         // ===== CouchDB Sync Functions =====
         function getSyncUrl() {
@@ -172,6 +194,17 @@ document.addEventListener('alpine:init', function () {
                     });
             }
 
+            // Sofortiger Push nach lokalen Änderungen (nur Push, kein Pull davor,
+            // damit eine gerade gelöschte Position nicht vorher wieder reingezogen wird).
+            couchPushNow = function () {
+                if (syncRunning) return;
+                syncRunning = true;
+                if (callbacks.onActive) callbacks.onActive();
+                push()
+                    .then(function () { syncRunning = false; if (callbacks.onPaused) callbacks.onPaused(null); })
+                    .catch(function (err) { syncRunning = false; console.error('CouchDB push error:', err); if (callbacks.onError) callbacks.onError(err); });
+            };
+
             syncCycle();
             syncTimers.push(setInterval(syncCycle, 30000));
         }
@@ -180,6 +213,7 @@ document.addEventListener('alpine:init', function () {
             syncTimers.forEach(function (t) { clearInterval(t); });
             syncTimers = [];
             syncRunning = false;
+            couchPushNow = null;
         }
 
         // ===== RxForge Sync Functions (OAuth 2.0 + RxDB Native Protocol) =====
@@ -1006,7 +1040,7 @@ document.addEventListener('alpine:init', function () {
                 if (profileData && profileData.profile) {
                     profileData.profile.tempo = this.tempo;
                     profileData.profile.activeGoal = this.activeGoal;
-                    saveProfileToDB(this.activeProfile, profileData.profile);
+                    saveProfileToDB(this.activeProfile, profileData.profile).then(function () { requestReactivePush(); });
                     this.toast('Diätziel gespeichert', 'success');
                 }
             },
@@ -1098,9 +1132,9 @@ document.addEventListener('alpine:init', function () {
                 if (this.profiles[this.activeProfile]) {
                     this.profiles[this.activeProfile].weightHistory = this.weightHistory;
                 }
-                persistWeightHistoryToDB(this.activeProfile, this.weightHistory).catch(function (err) {
-                    console.error('Error persisting weight history:', err);
-                });
+                persistWeightHistoryToDB(this.activeProfile, this.weightHistory)
+                    .then(function () { requestReactivePush(); })
+                    .catch(function (err) { console.error('Error persisting weight history:', err); });
             },
 
             drawChart: function () {
@@ -1141,9 +1175,9 @@ document.addEventListener('alpine:init', function () {
                         }
                     });
                 });
-                Promise.all(promises).catch(function (err) {
-                    console.error('Error saving profiles:', err);
-                });
+                Promise.all(promises)
+                    .then(function () { requestReactivePush(); })
+                    .catch(function (err) { console.error('Error saving profiles:', err); });
                 return true;
             },
 
@@ -1260,7 +1294,7 @@ document.addEventListener('alpine:init', function () {
                 profileData.savedAt = new Date().toISOString();
                 this.form.zielgewicht = profileData.zielgewicht;
                 this.profiles[this.activeProfile].profile = profileData;
-                saveProfileToDB(this.activeProfile, profileData);
+                saveProfileToDB(this.activeProfile, profileData).then(function () { requestReactivePush(); });
                 this.toast(profileData.zielgewicht ? 'Zielgewicht gespeichert' : 'Automatisches Zielgewicht aktiv', 'success');
             },
 
@@ -1271,6 +1305,7 @@ document.addEventListener('alpine:init', function () {
                 this.dropdownOpen = false;
                 this.confirmToast('Profil "' + name + '" wirklich löschen?', function () {
                     deleteProfileFromDB(name).then(function () {
+                        requestReactivePush();
                         delete self.profiles[name];
                         self.toast('"' + name + '" gelöscht', 'error');
                         var remaining = Object.keys(self.profiles);
