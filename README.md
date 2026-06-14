@@ -22,6 +22,7 @@ Ein moderner, browserbasierter Kalorienbedarf-Rechner als statische GitHub Pages
 - CouchDB Live-Sync via Connection String
 - Google Drive AppData Sync (nur Chrome)
 - Komplett clientseitig - keine Serveranbindung, Daten in IndexedDB (RxDB + Dexie)
+- **PWA** - installierbar und voll offline-nutzbar (Service Worker), mit Offline-Hinweis und automatischer Sync-Fortsetzung bei Netzrückkehr
 - Deutsche Benutzeroberfläche
 
 ## Tech-Stack
@@ -52,8 +53,14 @@ kcalc/
 │   ├── chart.js           # Canvas Weight-Chart + SVG Makro-Pie
 │   └── app.js             # Alpine.js Store (State, UI-Logik, Profil-Verwaltung)
 ├── img/
-│   └── favicon.svg        # Favicon
+│   ├── favicon.svg        # Favicon
+│   ├── icon-192.png       # PWA-Icon
+│   ├── icon-512.png       # PWA-Icon
+│   ├── icon-maskable-512.png  # PWA-Icon (maskable)
+│   └── apple-touch-icon.png   # iOS-Homescreen-Icon
 ├── index.html             # Hauptseite mit Alpine-Direktiven
+├── manifest.json          # PWA Web App Manifest
+├── sw.js                  # Service Worker (Offline-Cache)
 ├── CNAME                  # Custom Domain (kcalc.de)
 ├── LICENSE                # MIT Lizenz
 └── README.md

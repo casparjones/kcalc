@@ -2647,3 +2647,32 @@ h3 { font-size: var(--font-size-xl); }
    IE11 does not support CSS Custom Properties.
    For IE11 support, a PostCSS plugin or pre-processor would be needed.
    Modern browsers (Chrome 49+, Firefox 31+, Safari 9.1+, Edge 15+) fully support them. */
+
+/* ===== PWA Offline-Banner ===== */
+.offline-banner {
+    position: sticky;
+    top: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--color-warning);
+    color: #fff;
+    font-size: 0.9rem;
+    line-height: 1.35;
+    box-shadow: var(--shadow-sm);
+}
+
+.offline-banner__icon {
+    flex: 0 0 auto;
+    font-size: 1.1rem;
+}
+
+.offline-banner__text {
+    flex: 1 1 auto;
+}
+
+@media print {
+    .offline-banner { display: none !important; }
+}

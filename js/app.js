@@ -781,6 +781,9 @@ document.addEventListener('alpine:init', function () {
             gdriveSyncing: false,
             gdriveLastSync: localStorage.getItem('kcalc_gdrive_last_sync') || '',
 
+            // ===== Netzwerk / Offline State =====
+            isOnline: navigator.onLine,
+
             // ===== Lifecycle =====
             init: function () {
                 var self = this;
@@ -838,6 +841,10 @@ document.addEventListener('alpine:init', function () {
                     clearTimeout(timer);
                     timer = setTimeout(function () { self.drawChart(); }, 200);
                 });
+
+                // Netzwerkstatus überwachen -> Offline-Hinweis + automatischer Sync-Resume
+                window.addEventListener('online', function () { self.handleOnline(); });
+                window.addEventListener('offline', function () { self.handleOffline(); });
 
                 // Footer fade
                 setTimeout(function () {
@@ -1986,7 +1993,30 @@ document.addEventListener('alpine:init', function () {
                 this.settingsOpen = true;
             },
 
-            startCouchSync: function () {
+            // ===== Netzwerk / Offline =====
+
+            // true, sobald irgendein Sync-Backend eingerichtet ist
+            get syncConfigured() {
+                return this.rxforgeConnected || !!this.syncUrl || (!!this.gdriveToken && this.isChrome);
+            },
+
+            handleOffline: function () {
+                this.isOnline = false;
+                if (this.syncConfigured) {
+                    this.toast('Offline – Synchronisation pausiert. Daten werden lokal gespeichert.', 'warn');
+                }
+            },
+
+            handleOnline: function () {
+                this.isOnline = true;
+                if (!this.syncConfigured) return;
+                // Sync sofort fortsetzen, ohne bis zum nächsten 30s-Intervall zu warten
+                if (this.syncUrl) this.startCouchSync({ silent: true });
+                if (rxforgeHasToken()) this.connectRxForge({ silent: true });
+                this.toast('Wieder online – Synchronisation wird fortgesetzt.', 'success');
+            },
+
+            startCouchSync: function (opts) {
                 var self = this;
                 var url = this.syncUrl.trim();
                 if (!url) return;
@@ -2017,7 +2047,7 @@ document.addEventListener('alpine:init', function () {
                         self.syncStatus = 'disconnected';
                     }
                 });
-                this.toast('Sync gestartet', 'success');
+                if (!(opts && opts.silent)) this.toast('Sync gestartet', 'success');
             },
 
             disconnectSync: function () {
@@ -2034,7 +2064,7 @@ document.addEventListener('alpine:init', function () {
                 rxforgeOAuthConnect();
             },
 
-            connectRxForge: function () {
+            connectRxForge: function (opts) {
                 var self = this;
                 if (!rxforgeHasToken()) return;
                 this.rxforgeConnected = true;
@@ -2062,7 +2092,7 @@ document.addEventListener('alpine:init', function () {
                         }
                     }
                 });
-                this.toast('RxForge Sync gestartet', 'success');
+                if (!(opts && opts.silent)) this.toast('RxForge Sync gestartet', 'success');
             },
 
             disconnectRxForge: function () {
