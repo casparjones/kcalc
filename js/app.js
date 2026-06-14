@@ -89,6 +89,7 @@ document.addEventListener('alpine:init', function () {
                         if (!data.results || data.results.length === 0) return false;
 
                         var profileDocs = [], entryDocs = [], metaDocs = [];
+                        var delProfiles = [], delEntries = [], delMeta = [];
                         for (var i = 0; i < data.results.length; i++) {
                             var row = data.results[i];
                             var doc = row.doc || {};
@@ -96,12 +97,21 @@ document.addEventListener('alpine:init', function () {
                             var id = row.id;
                             if (id.startsWith('_')) continue;
 
+                            if (deleted) {
+                                // Server-Löschung lokal nachvollziehen (sonst pusht eine
+                                // veraltete lokale Kopie den Eintrag wieder hoch).
+                                if (id.indexOf('profile_') === 0)    delProfiles.push(id.slice(8));
+                                else if (id.indexOf('entry_') === 0) delEntries.push(id.slice(6));
+                                else if (id === 'meta_active')       delMeta.push('active');
+                                continue;
+                            }
+
                             if (id.startsWith('profile_') && doc.name) {
-                                if (!deleted) profileDocs.push({ id: doc.name, name: doc.name, profileJson: JSON.stringify(doc.profile || {}) });
+                                profileDocs.push({ id: doc.name, name: doc.name, profileJson: JSON.stringify(doc.profile || {}) });
                             } else if (id.startsWith('entry_') && doc.profileName && doc.date) {
-                                if (!deleted) entryDocs.push({ id: doc.profileName + '_' + doc.date, profileName: doc.profileName, date: doc.date, weight: doc.weight, entryId: doc.entryId || Date.now() });
+                                entryDocs.push({ id: doc.profileName + '_' + doc.date, profileName: doc.profileName, date: doc.date, weight: doc.weight, entryId: doc.entryId || Date.now() });
                             } else if (id === 'meta_active') {
-                                if (!deleted) metaDocs.push({ key: 'active', value: doc.value || '' });
+                                metaDocs.push({ key: 'active', value: doc.value || '' });
                             }
                         }
 
@@ -109,10 +119,14 @@ document.addEventListener('alpine:init', function () {
                         if (profileDocs.length) ops.push(rxdb.profiles.bulkUpsert(profileDocs));
                         if (entryDocs.length)   ops.push(rxdb.entries.bulkUpsert(entryDocs));
                         if (metaDocs.length)    ops.push(rxdb.meta.bulkUpsert(metaDocs));
+                        if (delProfiles.length) ops.push(rxRemoveLocal(rxdb.profiles, delProfiles));
+                        if (delEntries.length)  ops.push(rxRemoveLocal(rxdb.entries, delEntries));
+                        if (delMeta.length)     ops.push(rxRemoveLocal(rxdb.meta, delMeta));
 
                         return Promise.all(ops).then(function () {
                             localStorage.setItem(SYNC_SEQ_KEY, String(data.last_seq || since));
-                            return profileDocs.length + entryDocs.length + metaDocs.length > 0;
+                            return (profileDocs.length + entryDocs.length + metaDocs.length +
+                                    delProfiles.length + delEntries.length + delMeta.length) > 0;
                         });
                     });
             }
@@ -362,6 +376,13 @@ document.addEventListener('alpine:init', function () {
             localStorage.setItem(RXFORGE_MASTER_CACHE_KEY, JSON.stringify(cache));
         }
 
+        // Entfernt lokale Dokumente, die der Server als gelöscht meldet.
+        function rxRemoveLocal(collection, ids) {
+            return Promise.all(ids.map(function (localId) {
+                return collection.findOne(localId).exec().then(function (d) { return d ? d.remove() : null; });
+            }));
+        }
+
         // --- Sync core ---
 
         function rxforgePull() {
@@ -384,11 +405,20 @@ document.addEventListener('alpine:init', function () {
 
                         var masterCache  = rxforgeLoadMasterCache();
                         var profileDocs  = [], entryDocs = [], metaDocs = [];
+                        var delProfiles  = [], delEntries = [], delMeta = [];
 
                         docs.forEach(function (doc) {
                             var id = doc.id || '';
                             masterCache[id] = doc; // track server state for later push
-                            if (doc._deleted) return;
+                            if (doc._deleted) {
+                                // Server-Löschung lokal nachvollziehen, sonst bleibt eine
+                                // veraltete lokale Kopie liegen und pusht den Eintrag wieder
+                                // als "lebendig" hoch (Wiederauferstehung über Geräte hinweg).
+                                if (id.indexOf('profile_') === 0)    delProfiles.push(id.slice(8));
+                                else if (id.indexOf('entry_') === 0) delEntries.push(id.slice(6));
+                                else if (id.indexOf('meta_') === 0)  delMeta.push(id.slice(5));
+                                return;
+                            }
 
                             if (id.startsWith('profile_') && doc.name) {
                                 profileDocs.push({ id: doc.name, name: doc.name, profileJson: doc.profileJson || JSON.stringify(doc.profile || {}) });
@@ -405,9 +435,13 @@ document.addEventListener('alpine:init', function () {
                         if (profileDocs.length) ops.push(rxdb.profiles.bulkUpsert(profileDocs));
                         if (entryDocs.length)   ops.push(rxdb.entries.bulkUpsert(entryDocs));
                         if (metaDocs.length)    ops.push(rxdb.meta.bulkUpsert(metaDocs));
+                        if (delProfiles.length) ops.push(rxRemoveLocal(rxdb.profiles, delProfiles));
+                        if (delEntries.length)  ops.push(rxRemoveLocal(rxdb.entries, delEntries));
+                        if (delMeta.length)     ops.push(rxRemoveLocal(rxdb.meta, delMeta));
 
                         return Promise.all(ops).then(function () {
-                            return profileDocs.length + entryDocs.length + metaDocs.length > 0;
+                            return (profileDocs.length + entryDocs.length + metaDocs.length +
+                                    delProfiles.length + delEntries.length + delMeta.length) > 0;
                         });
                     });
             });

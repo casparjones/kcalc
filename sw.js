@@ -13,7 +13,7 @@
  *    laufen immer direkt ans Netz und scheitern offline bewusst.
  */
 
-var CACHE_VERSION = 'kcalc-v1.7.3';
+var CACHE_VERSION = 'kcalc-v1.7.4';
 var APP_SHELL = [
     './',
     './index.html',
