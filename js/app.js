@@ -117,19 +117,30 @@ document.addEventListener('alpine:init', function () {
 
                     if (docs.length === 0) return;
 
-                    // Fetch current _rev for each doc to avoid conflicts
-                    var ids = docs.map(function (d) { return d._id; });
-                    return authFetch(couchUrl + '_all_docs', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ keys: ids })
-                    }).then(function (r) { return r.json(); })
+                    // Alle Server-Dokumente holen: liefert die _rev (Konfliktvermeidung)
+                    // UND erlaubt Löscherkennung. RxDB-Soft-Deletes sind von .find() oben
+                    // ausgeblendet, daher fehlen lokal gelöschte Docs in "docs" - sie müssen
+                    // serverseitig als _deleted markiert werden, sonst kommen sie beim Pull zurück.
+                    return authFetch(couchUrl + '_all_docs')
+                    .then(function (r) { return r.json(); })
                     .then(function (allDocs) {
                         var revMap = {};
+                        var localIds = {};
+                        docs.forEach(function (d) { localIds[d._id] = true; });
                         (allDocs.rows || []).forEach(function (row) {
+                            if (!row.id || row.id.charAt(0) === '_') return; // Design-Docs ignorieren
                             if (row.value && row.value.rev) revMap[row.id] = row.value.rev;
                         });
                         docs.forEach(function (d) { if (revMap[d._id]) d._rev = revMap[d._id]; });
+
+                        // Server-Docs, die lokal nicht mehr existieren -> löschen.
+                        // (pull() läuft im selben Sync-Zyklus vor push(), daher ist der
+                        // lokale Stand vorher aktuell und es werden keine fremden Docs gelöscht.)
+                        Object.keys(revMap).forEach(function (id) {
+                            if (!localIds[id]) {
+                                docs.push({ _id: id, _rev: revMap[id], _deleted: true });
+                            }
+                        });
 
                         return authFetch(couchUrl + '_bulk_docs', {
                             method: 'POST',
@@ -393,6 +404,21 @@ document.addEventListener('alpine:init', function () {
                         var m   = d.toJSON();
                         var rid = 'meta_' + m.key;
                         rows.push({ assumedMasterState: masterCache[rid] || null, newDocumentState: { id: rid, type: 'meta', key: m.key, value: m.value, updatedAt: now } });
+                    });
+
+                    // Löschungen erkennen: Dokumente, die der masterCache kennt, die aber
+                    // lokal nicht mehr existieren (RxDB-Soft-Delete -> von .find() ausgeblendet),
+                    // müssen als _deleted gepusht werden, sonst kommen sie beim Pull zurück.
+                    var currentIds = {};
+                    rows.forEach(function (row) { currentIds[row.newDocumentState.id] = true; });
+                    Object.keys(masterCache).forEach(function (rid) {
+                        var prev = masterCache[rid];
+                        if (!prev || prev._deleted) return;   // bereits gelöscht
+                        if (currentIds[rid]) return;          // existiert lokal noch
+                        rows.push({
+                            assumedMasterState: prev,
+                            newDocumentState: Object.assign({}, prev, { _deleted: true, updatedAt: now })
+                        });
                     });
 
                     if (rows.length === 0) return;
