@@ -13,7 +13,7 @@
  *    laufen immer direkt ans Netz und scheitern offline bewusst.
  */
 
-var CACHE_VERSION = 'kcalc-v1.7.2';
+var CACHE_VERSION = 'kcalc-v1.7.3';
 var APP_SHELL = [
     './',
     './index.html',
@@ -40,7 +40,8 @@ self.addEventListener('install', function (event) {
         caches.open(CACHE_VERSION).then(function (cache) {
             // addAll schlägt fehl wenn EINE Datei nicht lädt -> einzeln & tolerant.
             return Promise.all(APP_SHELL.map(function (url) {
-                return cache.add(url).catch(function (err) {
+                // {cache:'reload'} umgeht den HTTP-Cache -> nie eine veraltete Datei precachen.
+                return cache.add(new Request(url, { cache: 'reload' })).catch(function (err) {
                     console.warn('[sw] Precache übersprungen:', url, err);
                 });
             }));
@@ -75,6 +76,22 @@ function staleWhileRevalidate(request) {
     });
 }
 
+// Network-First: immer die frische Datei vom Server, Cache nur als Offline-Fallback.
+// Für eigenen App-Code (HTML/JS/CSS) wichtig, damit Updates sofort greifen und
+// niemand auf einer veralteten Version "festklebt".
+function networkFirst(request) {
+    return caches.open(CACHE_VERSION).then(function (cache) {
+        return fetch(request).then(function (response) {
+            if (response && response.status === 200) {
+                cache.put(request, response.clone());
+            }
+            return response;
+        }).catch(function () {
+            return cache.match(request);
+        });
+    });
+}
+
 self.addEventListener('fetch', function (event) {
     var request = event.request;
 
@@ -95,9 +112,10 @@ self.addEventListener('fetch', function (event) {
         return;
     }
 
-    // Eigene Origin: Stale-While-Revalidate.
+    // Eigene Origin (App-Code): Network-First -> immer aktueller Code online,
+    // Cache nur als Offline-Fallback.
     if (url.origin === self.location.origin) {
-        event.respondWith(staleWhileRevalidate(request));
+        event.respondWith(networkFirst(request));
         return;
     }
 
