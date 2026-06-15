@@ -917,15 +917,21 @@ document.addEventListener('alpine:init', function () {
                 var self = this;
                 this.newDate = this.todayStr();
 
-                // Handle OAuth callback (?code=...) before anything else
-                rxforgeHandleOAuthCallback().then(function (token) {
+                // Handle OAuth callback (?code=...) before anything else.
+                // Den Token-Austausch als Promise festhalten, damit der Sync-Start
+                // unten (Kette B) darauf warten kann. Sonst prüft Kette B
+                // rxforgeHasToken(), bevor der async Token-Fetch zurück ist -> Sync
+                // startet beim ersten Load nicht und man muss neu laden.
+                var oauthReady = rxforgeHandleOAuthCallback().then(function (token) {
                     if (token) {
                         self.rxforgeConnected = true;
                         self.settingsOpen = true;
                         self.settingsTab = 'rxforge';
                     }
+                    return token;
                 }).catch(function (err) {
                     console.error('RxForge OAuth Callback fehlgeschlagen:', err);
+                    return '';
                 });
 
                 // Wait for RxDB, migrate legacy data, then load profiles
@@ -955,8 +961,13 @@ document.addEventListener('alpine:init', function () {
                     self.syncUrl = getSyncUrl();
                     if (self.syncUrl) self.startCouchSync();
 
-                    // Start RxForge sync if OAuth token is present
-                    if (rxforgeHasToken()) self.connectRxForge();
+                    // Start RxForge sync if OAuth token is present. Auf den OAuth-
+                    // Callback warten, damit ein frisch ausgetauschtes Token (erster
+                    // Load nach Redirect) berücksichtigt wird und nicht erst beim
+                    // zweiten Reload greift.
+                    oauthReady.then(function () {
+                        if (rxforgeHasToken()) self.connectRxForge();
+                    });
 
                 }).catch(function (err) {
                     console.error('RxDB init error:', err);
