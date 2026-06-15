@@ -447,6 +447,27 @@ document.addEventListener('alpine:init', function () {
             });
         }
 
+        // Vergleicht den fachlichen Inhalt eines neu gebauten Push-Status mit dem
+        // zuletzt bekannten Serverstand. updatedAt wird bewusst ignoriert, damit ein
+        // reiner Timestamp-Unterschied NICHT als Änderung gilt. Nur so lässt sich die
+        // Push/Pull-Endlosschleife verhindern (sonst macht jedes frische updatedAt
+        // jedes Dokument bei jedem Zyklus wieder "dirty").
+        function rxforgeContentEqual(state, master) {
+            if (!master || master._deleted) return false;
+            var keys = Object.keys(state);
+            for (var i = 0; i < keys.length; i++) {
+                var k = keys[i];
+                if (k === 'updatedAt') continue;
+                var a = state[k], b = master[k];
+                if (a && typeof a === 'object') {
+                    if (JSON.stringify(a) !== JSON.stringify(b)) return false;
+                } else if (a !== b) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         function rxforgePush() {
             return rxforgeGetValidToken().then(function (token) {
                 return Promise.all([
@@ -457,28 +478,41 @@ document.addEventListener('alpine:init', function () {
                     var masterCache = rxforgeLoadMasterCache();
                     var now  = Date.now();
                     var rows = [];
+                    var currentIds = {};
+
+                    // Eine Zeile NUR pushen, wenn sich der Inhalt gegenüber dem
+                    // Serverstand wirklich geändert hat; updatedAt wird ausschließlich
+                    // dann (auf "now") neu vergeben. Unveränderte Dokumente werden gar
+                    // nicht gepusht -> im Leerlauf bleibt rows leer und es geht kein
+                    // Traffic raus. currentIds erfasst trotzdem ALLE lokal vorhandenen
+                    // Dokumente, damit die Löscherkennung unten korrekt bleibt.
+                    function consider(rid, state) {
+                        currentIds[rid] = true;
+                        var master = masterCache[rid] || null;
+                        if (rxforgeContentEqual(state, master)) return; // unverändert -> nicht pushen
+                        state.updatedAt = now;
+                        rows.push({ assumedMasterState: master, newDocumentState: state });
+                    }
 
                     results[0].forEach(function (d) {
                         var p = {}; try { p = JSON.parse(d.toJSON().profileJson || '{}'); } catch (e) {}
                         var rid = 'profile_' + d.id;
-                        rows.push({ assumedMasterState: masterCache[rid] || null, newDocumentState: { id: rid, type: 'profile', name: d.name, profileJson: d.toJSON().profileJson, profile: p, updatedAt: now } });
+                        consider(rid, { id: rid, type: 'profile', name: d.name, profileJson: d.toJSON().profileJson, profile: p });
                     });
                     results[1].forEach(function (d) {
                         var e   = d.toJSON();
                         var rid = 'entry_' + e.id;
-                        rows.push({ assumedMasterState: masterCache[rid] || null, newDocumentState: { id: rid, type: 'entry', profileName: e.profileName, date: e.date, weight: e.weight, entryId: e.entryId, updatedAt: now } });
+                        consider(rid, { id: rid, type: 'entry', profileName: e.profileName, date: e.date, weight: e.weight, entryId: e.entryId });
                     });
                     results[2].forEach(function (d) {
                         var m   = d.toJSON();
                         var rid = 'meta_' + m.key;
-                        rows.push({ assumedMasterState: masterCache[rid] || null, newDocumentState: { id: rid, type: 'meta', key: m.key, value: m.value, updatedAt: now } });
+                        consider(rid, { id: rid, type: 'meta', key: m.key, value: m.value });
                     });
 
                     // Löschungen erkennen: Dokumente, die der masterCache kennt, die aber
                     // lokal nicht mehr existieren (RxDB-Soft-Delete -> von .find() ausgeblendet),
                     // müssen als _deleted gepusht werden, sonst kommen sie beim Pull zurück.
-                    var currentIds = {};
-                    rows.forEach(function (row) { currentIds[row.newDocumentState.id] = true; });
                     Object.keys(masterCache).forEach(function (rid) {
                         var prev = masterCache[rid];
                         if (!prev || prev._deleted) return;   // bereits gelöscht
