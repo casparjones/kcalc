@@ -1,7 +1,7 @@
 // Weight chart - Canvas drawing (imperative, called from Alpine)
 'use strict';
 
-var WeightChart = {
+export const WeightChart = {
     draw: function (canvasId, history) {
         var canvas = document.getElementById(canvasId);
         if (!canvas || !canvas.getContext) return;

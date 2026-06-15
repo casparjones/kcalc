@@ -58,6 +58,14 @@
 </head>
 <body x-data="app()" @click="dropdownOpen = false">
 
+    <!-- Ladebildschirm: reines HTML, unabhängig von Alpine -->
+    <div id="app-loader" aria-hidden="true">
+        <div class="app-loader__box">
+            <div class="app-loader__logo">kcal</div>
+            <div class="app-loader__spinner"></div>
+        </div>
+    </div>
+
     <!-- Offline-Hinweis: nur sichtbar wenn kein Netz UND Sync aktiv ist -->
     <div class="offline-banner" x-show="!isOnline && syncConfigured" x-cloak x-transition>
         <span class="offline-banner__icon" aria-hidden="true">&#9888;</span>
@@ -639,7 +647,7 @@
                         <li><a href="https://de.wikipedia.org/wiki/Leistungsumsatz" target="_blank" rel="noopener">Berechnungsgrundlagen</a></li>
                     </ul>
                 </nav>
-                <p class="footer-copyright">&copy; 2026 kcalc - Kalorienbedarf Rechner &middot; v1.7.6 Rev 2026-06-15</p>
+                <p class="footer-copyright">&copy; 2026 kcalc - Kalorienbedarf Rechner &middot; v1.8.0 Rev 2026-06-15</p>
                 <a href="https://github.com/casparjones/kcalc" target="_blank" rel="noopener" class="github-badge" aria-label="GitHub Repository">
                     <svg height="20" viewBox="0 0 16 16" width="20" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
                     <span>GitHub</span>
@@ -648,68 +656,10 @@
         </div>
     </footer>
 
-    <!-- Scripts: calc+chart+app BEFORE Alpine (Alpine must init after app.js registers Alpine.data) -->
+    <!-- Scripts: ES-Module-Bootstrap (main.js startet Alpine + lädt App-Module) -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="js/calc.js"></script>
-    <script src="js/chart.js"></script>
-    <script src="js/app.js"></script>
-    <!-- RxDB setup: module runs before Alpine (both deferred, module appears first in source order) -->
-    <script type="module">
-        import { createRxDatabase } from 'https://esm.sh/rxdb@15';
-        import { getRxStorageDexie } from 'https://esm.sh/rxdb@15/plugins/storage-dexie';
-
-        var profileSchema = {
-            version: 0,
-            primaryKey: 'id',
-            type: 'object',
-            properties: {
-                id:          { type: 'string', maxLength: 100 },
-                name:        { type: 'string', maxLength: 100 },
-                profileJson: { type: 'string' }
-            },
-            required: ['id', 'name', 'profileJson']
-        };
-
-        var entrySchema = {
-            version: 0,
-            primaryKey: 'id',
-            type: 'object',
-            properties: {
-                id:          { type: 'string', maxLength: 200 },
-                profileName: { type: 'string', maxLength: 100 },
-                date:        { type: 'string', maxLength: 10 },
-                weight:      { type: 'number', minimum: 0 },
-                entryId:     { type: 'number' }
-            },
-            required: ['id', 'profileName', 'date', 'weight']
-        };
-
-        var metaSchema = {
-            version: 0,
-            primaryKey: 'key',
-            type: 'object',
-            properties: {
-                key:   { type: 'string', maxLength: 50 },
-                value: { type: 'string' }
-            },
-            required: ['key', 'value']
-        };
-
-        window.__rxdbReady = createRxDatabase({
-            name: 'kcalc',
-            storage: getRxStorageDexie()
-        }).then(function (db) {
-            return db.addCollections({
-                profiles: { schema: profileSchema },
-                entries:  { schema: entrySchema },
-                meta:     { schema: metaSchema }
-            }).then(function () { return db; });
-        });
-    </script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script type="module" src="js/main.js"></script>
 
     <!-- PWA: Service Worker registrieren (offline-fähig) -->
     <script>
