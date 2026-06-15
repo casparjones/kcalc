@@ -558,9 +558,21 @@ export function rxforgeStartSse(onChanges) {
         var url = RXFORGE_BASE + '/api/v1/sync/' + RXFORGE_APP_ID + '/stream?access_token=' + encodeURIComponent(token);
         try {
             rxforgeSseSource = new EventSource(url);
-            rxforgeSseSource.onmessage = function (event) {
-                try { var d = JSON.parse(event.data); if (d && onChanges) onChanges(d); } catch (e) {}
+            // Der Server sendet BENANNTE SSE-Events ("event: change"). EventSource.onmessage
+            // feuert ausschliesslich fuer UNBENANNTE Events (Typ "message") -> die change-Events
+            // liefen bisher ins Leere und Aenderungen kamen erst per 30s-Polling an. Daher
+            // gezielt auf "change" hoeren -> sofortiger reaktiver Pull.
+            var handleSse = function (event) {
+                var d = null;
+                try { d = event && event.data ? JSON.parse(event.data) : null; } catch (e) {}
+                if (onChanges) onChanges(d);
             };
+            rxforgeSseSource.addEventListener('change', handleSse);
+            rxforgeSseSource.onmessage = handleSse; // Fallback fuer unbenannte Events
+            // Bei (Wieder-)Verbindung einmal nachziehen: waehrend einer Unterbrechung
+            // verpasste Aenderungen holt der Pull anhand des gespeicherten Checkpoints auf.
+            rxforgeSseSource.onopen = function () { if (onChanges) onChanges(null); };
+            // onerror nicht schliessen: EventSource reconnectet selbsttaetig.
         } catch (e) {
             console.warn('RxForge SSE nicht verfügbar, nur Polling aktiv');
         }
@@ -592,9 +604,12 @@ export function startRxForgeSync(callbacks) {
             });
     }
 
+    // Echtzeit ueber den SSE-Stream: jede Server-Aenderung loest sofort einen Pull aus.
     rxforgeStartSse(function () { syncCycle(); });
     syncCycle();
-    rxforgeTimers.push(setInterval(syncCycle, 30000));
+    // Reiner Fallback (Sicherheitsnetz), falls der Stream still wegbricht: seltener Pull.
+    // Den schnellen Abgleich macht der Stream; daher 60s statt des frueheren 30s-Takts.
+    rxforgeTimers.push(setInterval(syncCycle, 60000));
 }
 
 export function stopRxForgeSync() {
