@@ -5,7 +5,8 @@
 import { Calc } from './calc.js';
 import { WeightChart } from './chart.js';
 import { dbReady, getDb, loadAllProfilesFromDB, getActiveProfileFromDB, setActiveProfileInDB, saveProfileToDB, persistWeightHistoryToDB, deleteProfileFromDB, migrateFromLocalStorage, migrateFromPouchDB, buildExportData } from './db.js';
-import { getSyncUrl, setSyncUrl, startSync, stopSync, requestReactivePush, rxforgeHasToken, rxforgeOAuthConnect, rxforgeHandleOAuthCallback, startRxForgeSync, stopRxForgeSync, RXFORGE_ACCESS_KEY, RXFORGE_REFRESH_KEY, RXFORGE_EXPIRES_KEY, RXFORGE_CHECKPOINT_KEY, RXFORGE_MASTER_CACHE_KEY, RXFORGE_BASE, RXFORGE_CLIENT_ID } from './sync.js';
+import { getSyncUrl, setSyncUrl, startSync, stopSync, requestReactivePush, rxforgeHasToken, rxforgeOAuthConnect, rxforgeHandleOAuthCallback, startRxForgeSync, stopRxForgeSync, rxforgeResetIntegrityState, RXFORGE_ACCESS_KEY, RXFORGE_REFRESH_KEY, RXFORGE_EXPIRES_KEY, RXFORGE_CHECKPOINT_KEY, RXFORGE_MASTER_CACHE_KEY, RXFORGE_DB_INSTANCE_KEY, RXFORGE_BASE, RXFORGE_CLIENT_ID } from './sync.js';
+import { getDeviceId, getDeviceLabel, setDeviceLabel, detectPlatform } from './device.js';
 import { loadJsPDF, loadHtml2Canvas } from './export-libs.js';
 
 const macroColors = { protein: '#e74c3c', carbs: '#f39c12', fat: '#3498db' };
@@ -56,6 +57,11 @@ export function createApp() {
             rxforgeConnected: !!localStorage.getItem('kcalc_rxforge_access_token'),
             rxforgeStatus: 'disconnected',
             rxforgeError: '',
+
+            // ===== Geräte-Kennung (für den Sync-Verlauf) =====
+            deviceLabel: getDeviceLabel(),
+            deviceLabelDefault: detectPlatform(),
+            deviceIdShort: getDeviceId().slice(0, 8),
 
             // ===== Google Drive Backup State =====
             isChrome: /Chrome/.test(navigator.userAgent) && !/Edg/.test(navigator.userAgent),
@@ -1388,6 +1394,12 @@ export function createApp() {
                         }
                     },
                     onChange: function () { self.reloadFromDB(); },
+                    // Der lokale Speicher war leer/fremd -> die Serverdaten wurden
+                    // wiederhergestellt statt als Löschung hochgeschickt.
+                    onRecovery: function (mode) {
+                        self.toast('Lokale Daten fehlten (' + mode + ') – Stand wurde von RxForge wiederhergestellt.', 'warn');
+                        self.reloadFromDB();
+                    },
                     onError: function (err) {
                         if (err && err.message === 'TOKEN_EXPIRED') {
                             self.rxforgeHandleSessionExpired();
@@ -1415,14 +1427,23 @@ export function createApp() {
                 localStorage.removeItem(RXFORGE_EXPIRES_KEY);
                 localStorage.removeItem(RXFORGE_CHECKPOINT_KEY);
                 localStorage.removeItem(RXFORGE_MASTER_CACHE_KEY);
+                localStorage.removeItem(RXFORGE_DB_INSTANCE_KEY);
+                rxforgeResetIntegrityState();
                 this.rxforgeConnected = false;
                 this.rxforgeStatus = 'disconnected';
                 this.rxforgeError = '';
                 this.toast('RxForge getrennt', 'info');
             },
 
+            saveDeviceLabel: function () {
+                setDeviceLabel(this.deviceLabel);
+                this.deviceLabel = getDeviceLabel();
+                this.toast('Gerätename gespeichert', 'success');
+            },
+
             rxforgeHandleSessionExpired: function () {
                 stopRxForgeSync();
+                rxforgeResetIntegrityState();
                 localStorage.removeItem(RXFORGE_ACCESS_KEY);
                 localStorage.removeItem(RXFORGE_REFRESH_KEY);
                 localStorage.removeItem(RXFORGE_EXPIRES_KEY);

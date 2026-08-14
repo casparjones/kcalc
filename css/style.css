@@ -1419,6 +1419,18 @@ h3 { font-size: var(--font-size-xl); }
     margin-top: var(--spacing-sm);
 }
 
+/* Geräte-Kennung für den Sync-Verlauf */
+.sync-device-info {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--color-border);
+}
+
+.sync-device-info code {
+    font-family: monospace;
+    font-size: var(--font-size-xs);
+}
+
 .sync-url-display {
     font-family: monospace;
     font-size: var(--font-size-xs);

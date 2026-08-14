@@ -562,6 +562,17 @@
                                     <button type="button" class="btn btn-secondary btn-small btn-disconnect" @click="disconnectRxForge()">Trennen</button>
                                 </div>
                             </template>
+
+                            <div class="sync-device-info">
+                                <label class="settings-label" for="deviceLabelInput">Name dieses Geräts</label>
+                                <input id="deviceLabelInput" type="text" class="settings-input"
+                                       x-model="deviceLabel" @change="saveDeviceLabel()"
+                                       :placeholder="deviceLabelDefault">
+                                <p class="settings-hint">
+                                    Erscheint im RxForge-Verlauf, damit nachvollziehbar bleibt, welches Gerät welche
+                                    Änderung gemacht hat. Geräte-ID: <code x-text="deviceIdShort"></code>
+                                </p>
+                            </div>
                         </div>
 
                         <!-- Google Drive Tab (Chrome only) -->

@@ -3,6 +3,7 @@
 
 import { createRxDatabase } from 'https://esm.sh/rxdb@15';
 import { getRxStorageDexie } from 'https://esm.sh/rxdb@15/plugins/storage-dexie';
+import { getDeviceId } from './device.js';
 
 // ===== Storage Keys (legacy migration) =====
 const STORAGE_KEY = 'diaethelfer_profiles';
@@ -48,6 +49,45 @@ var metaSchema = {
     required: ['key', 'value']
 };
 
+// Grabsteine: explizite Löschbelege.
+//
+// Vorher wurden Löschungen daraus abgeleitet, dass ein Dokument lokal fehlt.
+// Das ist falsch, sobald der Browser die IndexedDB wegräumt (Safari löscht
+// script-writable Storage nach ~7 Tagen Inaktivität) während localStorage
+// überlebt: dann fehlt plötzlich ALLES lokal und die App löscht den kompletten
+// Serverbestand. Gelöscht wird jetzt nur noch, wofür es hier einen Beleg gibt.
+// `id` ist die Remote-ID, z.B. 'entry_Frank_2026-08-01'.
+var tombstoneSchema = {
+    version: 0,
+    primaryKey: 'id',
+    type: 'object',
+    properties: {
+        id:        { type: 'string', maxLength: 200 },
+        deletedAt: { type: 'number', minimum: 0 },
+        deviceId:  { type: 'string', maxLength: 64 }
+    },
+    required: ['id', 'deletedAt']
+};
+
+// Rein lokaler Zustand. Bewusst eine EIGENE Collection und nicht `meta`:
+// `meta` wird synchronisiert, ein dort abgelegter Wert landete auf dem Server
+// und würde von anderen Geräten überschrieben.
+var localStateSchema = {
+    version: 0,
+    primaryKey: 'key',
+    type: 'object',
+    properties: {
+        key:   { type: 'string', maxLength: 50 },
+        value: { type: 'string' }
+    },
+    required: ['key', 'value']
+};
+
+// Kennung dieser konkreten lokalen Datenbank. Liegt gespiegelt in IndexedDB
+// (localstate) und localStorage. Stimmen beide nicht überein, wurde einer der
+// beiden Speicher geleert -> die App darf dem lokalen Stand nicht mehr trauen.
+export const DB_INSTANCE_KEY = 'sync_instance';
+
 // ===== Database instance =====
 let _db = null;
 
@@ -56,19 +96,78 @@ export const dbReady = createRxDatabase({
     storage: getRxStorageDexie()
 }).then(function (db) {
     return db.addCollections({
-        profiles: { schema: profileSchema },
-        entries:  { schema: entrySchema },
-        meta:     { schema: metaSchema }
+        profiles:   { schema: profileSchema },
+        entries:    { schema: entrySchema },
+        meta:       { schema: metaSchema },
+        tombstones: { schema: tombstoneSchema },
+        localstate: { schema: localStateSchema }
     }).then(function () { _db = db; return db; });
 });
 
 export function getDb() { return _db; }
 
 // Entfernt lokale Dokumente, die der Server als gelöscht meldet.
+// Bewusst OHNE Grabstein: der Server kennt die Löschung ja schon, und ein
+// Grabstein würde die Löschung beim nächsten Push nur nochmal hochschicken.
 export function rxRemoveLocal(collection, ids) {
     return Promise.all(ids.map(function (localId) {
         return collection.findOne(localId).exec().then(function (d) { return d ? d.remove() : null; });
     }));
+}
+
+// ===== Grabsteine (Löschbelege für den Sync) =====
+
+/** Legt Löschbelege für Remote-IDs an (z.B. 'entry_Frank_2026-08-01'). */
+export function addTombstones(remoteIds, deviceId) {
+    if (!remoteIds || remoteIds.length === 0) return Promise.resolve();
+    var now = Date.now();
+    return getDb().tombstones.bulkUpsert(remoteIds.map(function (id) {
+        return { id: id, deletedAt: now, deviceId: deviceId || '' };
+    }));
+}
+
+export function listTombstones() {
+    return getDb().tombstones.find().exec().then(function (docs) {
+        return docs.map(function (d) { return d.toJSON(); });
+    });
+}
+
+/**
+ * Räumt alte Löschbelege ab.
+ *
+ * Belege werden bewusst NICHT direkt nach dem Push entfernt: RxForge und
+ * CouchDB teilen sich denselben Speicher, und ein von einem Backend
+ * abgeräumter Beleg würde beim anderen nie ankommen. Die Löschungen sind
+ * idempotent (ein bereits gelöschtes Dokument wird übersprungen), deshalb
+ * genügt es, die Belege nach einer großzügigen Frist zu verwerfen.
+ */
+export function pruneTombstones(maxAgeMs) {
+    var cutoff = Date.now() - (maxAgeMs || 90 * 24 * 60 * 60 * 1000);
+    return getDb().tombstones.find().exec().then(function (docs) {
+        var old = docs.filter(function (d) { return (d.toJSON().deletedAt || 0) < cutoff; });
+        return Promise.all(old.map(function (d) { return d.remove(); }));
+    });
+}
+
+/** Entfernt einzelne Belege (z.B. weil das Dokument wieder angelegt wurde). */
+export function removeTombstones(remoteIds) {
+    if (!remoteIds || remoteIds.length === 0) return Promise.resolve();
+    return Promise.all(remoteIds.map(function (id) {
+        return getDb().tombstones.findOne(id).exec()
+            .then(function (d) { return d ? d.remove() : null; });
+    }));
+}
+
+// ===== Rein lokaler Zustand (wird nicht synchronisiert) =====
+
+export function getLocalState(key) {
+    return getDb().localstate.findOne(key).exec().then(function (doc) {
+        return doc ? doc.toJSON().value || '' : '';
+    });
+}
+
+export function setLocalState(key, value) {
+    return getDb().localstate.upsert({ key: key, value: value || '' });
 }
 
 // ===== RxDB Helper Functions =====
@@ -253,24 +352,35 @@ export function persistWeightHistoryToDB(profileName, weightHistory) {
             }
 
             var ops = [];
+            var removedRemoteIds = [];
             var existingDates = Object.keys(existingByDate);
             for (var k = 0; k < existingDates.length; k++) {
                 if (!currentDates[existingDates[k]]) {
                     ops.push(rxDocByDate[existingDates[k]].remove());
+                    removedRemoteIds.push('entry_' + profileName + '_' + existingDates[k]);
                 }
             }
             if (toUpsert.length > 0) ops.push(getDb().entries.bulkUpsert(toUpsert));
+            // Wieder angelegte Einträge dürfen keinen alten Beleg mehr haben.
+            if (toUpsert.length > 0) {
+                ops.push(removeTombstones(toUpsert.map(function (e) { return 'entry_' + e.id; })));
+            }
+            if (removedRemoteIds.length > 0) ops.push(addTombstones(removedRemoteIds, getDeviceId()));
             if (ops.length > 0) return Promise.all(ops);
         });
 }
 
 export function deleteProfileFromDB(name) {
-    return Promise.all([
-        getDb().profiles.findOne(name).exec().then(function (doc) { return doc ? doc.remove() : null; }),
-        getDb().entries.find({ selector: { profileName: name } }).exec().then(function (docs) {
-            return Promise.all(docs.map(function (d) { return d.remove(); }));
-        })
-    ]);
+    return getDb().entries.find({ selector: { profileName: name } }).exec().then(function (docs) {
+        var remoteIds = ['profile_' + name];
+        docs.forEach(function (d) { remoteIds.push('entry_' + d.toJSON().id); });
+        return Promise.all([
+            getDb().profiles.findOne(name).exec().then(function (doc) { return doc ? doc.remove() : null; }),
+            Promise.all(docs.map(function (d) { return d.remove(); }))
+        ]).then(function () {
+            return addTombstones(remoteIds, getDeviceId());
+        });
+    });
 }
 
 // Shared helper to build an exportable data object from RxDB

@@ -13,7 +13,7 @@
  *    laufen immer direkt ans Netz und scheitern offline bewusst.
  */
 
-var CACHE_VERSION = 'kcalc-v1.8.1';
+var CACHE_VERSION = 'kcalc-v1.9.0';
 var APP_SHELL = [
     './',
     './index.html',
@@ -25,6 +25,7 @@ var APP_SHELL = [
     './js/chart.js',
     './js/db.js',
     './js/sync.js',
+    './js/device.js',
     './js/export-libs.js',
     './img/favicon.svg',
     './img/icon-192.png',
